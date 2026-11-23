@@ -1,4 +1,29 @@
 /**
+ * 判断是否为 null 或 undefined
+ */
+export function isNull(value: unknown): value is null | undefined {
+  return value === null || value === undefined
+}
+
+/**
+ * 判断值是否为空 (null, undefined, 空字符串, 空数组, 空对象, 空 Map/Set)
+ */
+export function isEmpty(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (typeof value === 'string' || Array.isArray(value)) return value.length === 0
+  if (value instanceof Map || value instanceof Set) return value.size === 0
+  if (typeof value === 'object') return Object.keys(value).length === 0
+  return false
+}
+
+/**
+ * 判断值是否非空
+ */
+export function isNotEmpty<T>(value: T): boolean {
+  return !isEmpty(value)
+}
+
+/**
  * 判断是否为 ShowToastOptions 类型
  * @param option 待判断的对象
  * @returns 是否符合 ShowToastOptions 接口特征

@@ -1,6 +1,13 @@
 {
   "version": 2,
   "skills": {
+    "alibabacloud-esa-pages-deploy": {
+      "source": "https://skills.aliyun.com/api/public/skills/alibabacloud-esa-pages-deploy/download",
+      "sourceUrl": "https://skills.aliyun.com/api/public/skills/alibabacloud-esa-pages-deploy/download",
+      "sourceType": "download",
+      "skillPath": "SKILL.md",
+      "computedHash": "f5c354e497ce8e36bb18f1682228c9131b68f906cca0f0a2429c4a62574be2da"
+    },
     "huashu-design": {
       "source": "alchaincyf/huashu-design",
       "commit": "937113133ae446a69ea19d4ceed6cbd2ed3c7735",

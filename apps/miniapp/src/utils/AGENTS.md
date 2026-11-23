@@ -47,7 +47,6 @@
 - 与 `src/http/`、`src/composables/`、`src/stores/` 和业务页面广泛互相调用。
 
 ### External
-- `dayjs`。
 - `vue` 类型与 ref 工具。
 - `@dcloudio/uni-app` UI / 平台 API。
 

@@ -1,7 +1,7 @@
 {
   "name": "cycle-compass-miniapp",
   "type": "module",
-  "version": "1.0.2026112368",
+  "version": "1.0.2026112370",
   "packageManager": "pnpm@10.25.0",
   "description": "周期罗盘 CycleCompass 微信小程序前端，基于 uni-app + Vue 3 + TypeScript + Tailwind CSS v4 + weapp-tailwindcss v5 + Compass UI",
   "author": "CycleCompass Team",
@@ -12,6 +12,7 @@
     "dev:h5:production": "uni --mode production",
     "dev:mp-weixin": "uni -p mp-weixin",
     "dev:mp-weixin:production": "uni -p mp-weixin --mode production",
+    "build": "uni build",
     "build:h5": "uni build",
     "build:mp-weixin": "uni build -p mp-weixin",
     "build:mp-weixin:development": "uni build -p mp-weixin --mode development",
@@ -107,7 +108,7 @@
       "prettier --write"
     ]
   },
-  "versionCode": "2026112368",
-  "gitHash": "ee95b6a",
-  "buildDate": "2026-11-23 08:50:59"
+  "versionCode": "2026112370",
+  "gitHash": "09519c4",
+  "buildDate": "2026-11-23 10:53:20"
 }

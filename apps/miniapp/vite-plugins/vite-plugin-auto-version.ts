@@ -3,7 +3,19 @@ import { execSync } from 'node:child_process'
 // vite-plugin-auto-version.ts
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import dayjs from 'dayjs'
+
+function formatDateTime(d = new Date(), format = 'YYYY-MM-DD HH:mm:ss'): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const map: Record<string, string> = {
+    YYYY: String(d.getFullYear()),
+    MM: pad(d.getMonth() + 1),
+    DD: pad(d.getDate()),
+    HH: pad(d.getHours()),
+    mm: pad(d.getMinutes()),
+    ss: pad(d.getSeconds())
+  }
+  return format.replace(/YYYY|MM|DD|HH|mm|ss/g, (match) => map[match] || match)
+}
 
 interface AutoVersionPluginOptions {
   file?: string // package.json 路径
@@ -50,7 +62,7 @@ export function AutoVersion(options: AutoVersionPluginOptions = {}): Plugin {
 
       // 获取构建时间和 Git 提交信息
       try {
-        buildDate = dayjs().format('YYYY-MM-DD HH:mm:ss')
+        buildDate = formatDateTime(new Date(), 'YYYY-MM-DD HH:mm:ss')
         gitCommitHash = execSync('git rev-parse --short HEAD', {
           encoding: 'utf-8'
         }).trim()
@@ -177,7 +189,7 @@ function IncrementVersionName(
  */
 function ProcessVersionCode(version: string): string {
   // 获取今天的日期 (YYYYMMDD)
-  const todayDate = dayjs().format('YYYYMMDD')
+  const todayDate = formatDateTime(new Date(), 'YYYYMMDD')
 
   // 检查是否以8位数字日期开头
   const isDatePrefix = /^\d{8}/.test(version) && version.length >= 8

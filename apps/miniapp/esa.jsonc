@@ -1,0 +1,9 @@
+{
+  "name": "cycle-compass",
+  "description": "CycleCompass uni-app H5 deployment on ESA Pages",
+  "buildCommand": "pnpm run build:h5",
+  "assets": {
+    "directory": "./dist/build/h5",
+    "notFoundStrategy": "singlePageApplication"
+  }
+}

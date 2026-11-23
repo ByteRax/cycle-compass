@@ -56,9 +56,6 @@ importers:
       '@dcloudio/uni-quickapp-webview':
         specifier: 3.0.0-5030320261023001
         version: 3.0.0-5030320261023001(postcss@8.5.33)(rollup@4.65.0)(vue@3.5.44(typescript@6.0.3))
-      dayjs:
-        specifier: ^1.11.23
-        version: 1.11.23
       pinia:
         specifier: 4.1.0
         version: 4.1.0(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.44(typescript@6.0.3))
@@ -6126,9 +6123,6 @@ packages:
 
   dateformat@2.2.0:
     resolution: {integrity: sha512-GODcnWq3YGoTnygPfi02ygEiRxqUxpJwuRHjdhJYuxpcZmDq4rjBiXYmbCCzStxo176ixfLT6i4NPwQooRySnw==}
-
-  dayjs@1.11.23:
-    resolution: {integrity: sha512-QDTCU0M0MxR3hQfnlDJfwekQiaanm1ubOD231u73WBckQ/fsamwRLiE2GBz6D3a/xF1NgfiDLJjXBa1hYOYTtQ==}
 
   debounce-fn@4.0.0:
     resolution: {integrity: sha512-8pYCQiL9Xdcg0UPSD3d+0KMlOjp+KGU5EPwYddgzQ7DATsg4fuUDjQtsYLmWjnk2obnNHgV3vE2Y4jejSOJVBQ==}
@@ -19330,8 +19324,6 @@ snapshots:
       whatwg-url: 8.7.0
 
   dateformat@2.2.0: {}
-
-  dayjs@1.11.23: {}
 
   debounce-fn@4.0.0:
     dependencies:
