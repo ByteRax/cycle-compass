@@ -2,8 +2,8 @@
   "name": "周期罗盘-release",
   "appid": "__UNI__B746FDE",
   "description": "周期罗盘 CycleCompass 微信小程序前端，基于 uni-app + Vue 3 + TypeScript + Tailwind CSS v4 + weapp-tailwindcss v5 + Compass UI",
-  "versionName": "1.0.2026112373",
-  "versionCode": "2026112373",
+  "versionName": "1.0.2026112374",
+  "versionCode": "2026112374",
   "transformPx": false,
   "app-plus": {
     "usingComponents": true,

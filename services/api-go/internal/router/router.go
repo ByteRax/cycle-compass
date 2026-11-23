@@ -54,17 +54,21 @@ func Setup(p RouterParams) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 			if origin != "" {
+				allowedHeaders := "Accept, Authorization, Content-Type, X-CSRF-Token, Version, version, AppKey, appkey, X-Request-Id"
+				if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
+					allowedHeaders = reqHeaders
+				}
 				if allowAllOrigins {
 					w.Header().Set("Access-Control-Allow-Origin", "*")
 					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-					w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token")
+					w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 					w.Header().Set("Access-Control-Expose-Headers", "ETag, X-Request-Id")
 					w.Header().Set("Access-Control-Max-Age", "86400")
 				} else if _, ok := allowedOriginSet[origin]; ok {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					w.Header().Set("Vary", "Origin")
 					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-					w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token")
+					w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 					w.Header().Set("Access-Control-Allow-Credentials", "true")
 					w.Header().Set("Access-Control-Expose-Headers", "ETag, X-Request-Id")
 					w.Header().Set("Access-Control-Max-Age", "86400")

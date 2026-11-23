@@ -152,12 +152,14 @@ export const httpInterceptor: RequestInterceptor = {
     if (token) {
       options.header['Authorization'] = `Bearer ${token}`
     }
+    // #ifndef H5
     if (appKey) {
       options.header['AppKey'] = appKey
     }
     if (sys.appVersion) {
       options.header['Version'] = sys.appVersion
     }
+    // #endif
     const deviceInfo = {
       platform: String(sys.uniPlatform ?? ''),
       os: `${sys.osName ?? ''}_${sys.osVersion ?? ''}`,
