@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>方向三 · 等高线周期地貌（CycleCompass 微信小程序）</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #E5E0D2; color: #1B2420;
+      font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .cond { font-family: "DIN Alternate", "Arial Narrow", "Impact", -apple-system, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .mono { font-family: "SF Mono", "Menlo", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+
+    .board {
+      position: relative; width: 1440px; height: 1160px; margin: 0 auto;
+      background: #EFECE2; overflow: hidden;
+    }
+    .wf-wrap {
+      display: inline-block; padding: 10px; background: #1B2420; border-radius: 54px;
+      box-shadow: 0 0 0 1.5px #334039, 0 24px 60px rgba(27,36,32,0.22);
+    }
+    .wf-screen {
+      position: relative; width: 375px; height: 812px; border-radius: 44px; overflow: hidden;
+      background: #EFECE2; color: #1B2420;
+    }
+    .wf-status {
+      position: absolute; top: 0; left: 0; right: 0; height: 44px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 26px 0 30px; font-size: 15px; font-weight: 600; z-index: 40; pointer-events: none;
+    }
+    .wf-capsule {
+      position: absolute; top: 48px; right: 7px; width: 87px; height: 32px;
+      border-radius: 16px; display: flex; align-items: center; z-index: 50; pointer-events: none;
+      background: rgba(255,255,255,0.75); border: 0.5px solid rgba(27,36,32,0.14);
+    }
+    .wf-cap-half { flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .wf-cap-sep { width: 0.5px; height: 18px; background: rgba(27,36,32,0.14); }
+    .wf-scroll { position: absolute; top: 0; left: 0; right: 0; bottom: 83px; overflow-y: auto; }
+    .wf-scroll.no-tab { bottom: 0; }
+    .wf-tabbar {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 83px; padding-bottom: 34px;
+      background: #FFFFFF; border-top: 1px solid rgba(27,36,32,0.10); display: flex; z-index: 30;
+    }
+    .wf-tab {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; font-size: 11px; color: #79857E; cursor: pointer; user-select: none;
+    }
+    .wf-tab.active { color: #D94E28; font-weight: 700; }
+    .wf-home-ind {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px; border-radius: 999px; background: rgba(27,36,32,0.75); z-index: 60;
+    }
+
+    .up { color: #D94E28; }
+    .down { color: #1D7F5A; }
+    .muted { color: #57635C; }
+    .faint { color: #838E87; }
+    .share-card {
+      width: 248px; background: #FFFFFF; border-radius: 8px; padding: 10px 8px 0;
+      box-shadow: 0 6px 20px rgba(27,36,32,0.14);
+    }
+  </style>
+</head>
+<body>
+  <div class="board" data-showboard="flow">
+    <!-- Full-board organic contour background + flow connectors -->
+    <svg width="1440" height="1160" viewBox="0 0 1440 1160" style="position:absolute;inset:0;pointer-events:none;">
+      <path d="M-40,180 C240,90 520,270 860,150 C1140,50 1320,210 1500,140" fill="none" stroke="#B99768" stroke-width="1.2" opacity="0.32" />
+      <path d="M-40,420 C280,320 560,510 920,380 C1180,280 1360,450 1500,360" fill="none" stroke="#B99768" stroke-width="1.8" opacity="0.28" />
+      <path d="M-40,760 C310,640 620,860 980,710 C1220,610 1380,790 1500,720" fill="none" stroke="#B99768" stroke-width="1.2" opacity="0.28" />
+      <path d="M-40,1010 C290,920 640,1090 1020,960 C1260,880 1390,1030 1500,980" fill="none" stroke="#B99768" stroke-width="1.5" opacity="0.24" />
+      <!-- Flow connectors -->
+      <path d="M350,620 C372,620 372,608 394,608" fill="none" stroke="#D94E28" stroke-width="2.2" stroke-dasharray="5 5" />
+      <circle cx="394" cy="608" r="4.5" fill="#D94E28" />
+      <path d="M696,664 C718,664 718,652 740,652" fill="none" stroke="#D94E28" stroke-width="2.2" stroke-dasharray="5 5" />
+      <circle cx="740" cy="652" r="4.5" fill="#D94E28" />
+      <path d="M1042,708 C1064,708 1064,696 1086,696" fill="none" stroke="#D94E28" stroke-width="2.2" stroke-dasharray="5 5" />
+      <circle cx="1086" cy="696" r="4.5" fill="#D94E28" />
+    </svg>
+
+    <!-- Board Header -->
+    <div style="position:absolute;left:48px;top:44px;width:820px;">
+      <div class="mono up" style="font-size:13px;font-weight:700;margin-bottom:8px;">方向三 · 等高线周期地貌（秒数轮盘 App 06 · 2-Tab 轻流程）</div>
+      <div style="font-size:46px;font-weight:900;line-height:1.06;letter-spacing:-0.02em;">周期罗盘 CycleCompass</div>
+      <div style="font-size:15px;line-height:1.65;color:#57635C;margin-top:12px;">
+        跨类目借用地形等高线与海拔剖面机制：把 10 年比值起伏画成肉眼可感的山峰与低谷，精简为 2-tab 即用即走流，专为周一定投日单手快速决策打卡设计。
+      </div>
+    </div>
+
+    <!-- Top-right WeChat Share Card -->
+    <div style="position:absolute;right:48px;top:28px;">
+      <div class="share-card">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#57635C;margin-bottom:6px;">
+          <div style="width:16px;height:16px;border-radius:999px;background:#D94E28;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;">罗</div>
+          <span>周期罗盘</span>
+        </div>
+        <div style="font-size:14px;font-weight:500;color:#1B2420;line-height:1.4;margin-bottom:8px;">十年周期水位 24.3%：山腰按兵不动，¥1,000 蓄水</div>
+        <div data-mp-share="" style="width:232px;height:185px;background:#EFECE2;border-radius:4px;padding:12px;position:relative;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">
+          <svg width="232" height="185" viewBox="0 0 232 185" style="position:absolute;inset:0;">
+            <path d="M-10,60 C60,40 120,90 242,55" fill="none" stroke="#B99768" stroke-width="1" opacity="0.45" />
+            <path d="M 12 146 C 54 140, 88 70, 144 62 C 176 58, 198 112, 214 122" fill="none" stroke="#FFF" stroke-width="4.5" stroke-linecap="round" />
+            <path d="M 12 146 C 54 140, 88 70, 144 62 C 176 58, 198 112, 214 122" fill="none" stroke="#D94E28" stroke-width="2.4" stroke-linecap="round" />
+            <circle cx="214" cy="122" r="4.5" fill="#D94E28" stroke="#FFF" stroke-width="1.5" />
+          </svg>
+          <div style="position:relative;z-index:2;">
+            <div class="mono up" style="font-size:10px;font-weight:700;">2026-11-20 · 中间区</div>
+            <div class="cond" style="font-size:38px;font-weight:800;color:#1B2420;line-height:1;">0.1846</div>
+          </div>
+          <div style="position:relative;z-index:2;font-size:11px;font-weight:700;color:#1B2420;">本周 ¥1,000 存入现金池</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#838E87;border-top:0.5px solid #EBE7DC;margin-top:8px;padding:6px 0;">
+          <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="#7d7df0" stroke-width="1.4"/><circle cx="6" cy="6" r="1.8" fill="#7d7df0"/></svg>
+          <span>小程序</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 Flow Phones -->
+    <div id="slot-p1" style="position:absolute;left:48px;top:252px;"></div>
+    <div id="slot-p2" style="position:absolute;left:394px;top:296px;"></div>
+    <div id="slot-p3" style="position:absolute;left:740px;top:340px;"></div>
+    <div id="slot-p4" style="position:absolute;left:1086px;top:384px;"></div>
+
+    <!-- Footnote -->
+    <div style="position:absolute;left:48px;bottom:24px;font-size:13px;color:#57635C;">
+      <strong style="color:#1B2420;">form 来自内容的哪里：</strong>经济周期天然是峰顶、低谷与分水岭，海拔等高线让用户 3 秒内看懂自己身处山腰还是谷底。
+    </div>
+  </div>
+
+  <script>
+    const D3_ICONS = {
+      '周期路线': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 18l6-7 4 4 8-10"/></svg>',
+      '我的账本': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="14" x2="13" y2="14"/></svg>',
+    };
+
+    const HEATMAP_SECTORS = [
+      { n: '存储', p: 3.73 }, { n: '半导体', p: 2.85 }, { n: 'AI算力', p: 2.58 },
+      { n: '光伏', p: 2.47 }, { n: '智驾', p: 2.39 }, { n: 'CPO', p: 2.17 },
+      { n: '锂电池', p: 1.81 }, { n: '机器人', p: 1.56 }, { n: '石油', p: 1.43 },
+      { n: '稀土', p: 1.37 }, { n: '医药', p: -0.09 }, { n: '天然气', p: -1.08 },
+    ];
+    const HEATMAP_CROSS = [
+      { n: '韩存储', p: 4.57 }, { n: 'Token', p: 3.73 }, { n: 'SSD', p: 3.67 },
+      { n: '云算力', p: 3.66 }, { n: 'GPU', p: 3.63 }, { n: 'MLCC', p: 2.44 },
+      { n: 'DRAM', p: 2.35 }, { n: '日经225', p: -5.06 }, { n: 'KOSPI', p: -5.21 },
+      { n: '黄金', p: -2.61 }, { n: '白银', p: -6.60 }, { n: '金属锑', p: -7.37 },
+    ];
+
+    function topoElevationHtml() {
+      return `
+        <div style="position:relative;height:268px;background:#EFECE2;overflow:hidden;">
+          <svg width="375" height="268" viewBox="0 0 375 268" style="position:absolute;inset:0;">
+            <path d="M-20,62 C40,34 95,86 165,54 C235,22 300,72 395,46" fill="none" stroke="#B99768" stroke-width="0.9" opacity="0.45" />
+            <path d="M-20,98 C55,68 115,126 185,92 C255,58 315,112 395,82" fill="none" stroke="#B99768" stroke-width="1.4" opacity="0.55" />
+            <path d="M-20,136 C60,112 130,164 205,128 C280,92 330,148 395,124" fill="none" stroke="#B99768" stroke-width="0.9" opacity="0.4" />
+            <path d="M-20,176 C70,152 145,204 225,168 C295,138 340,188 395,166" fill="none" stroke="#B99768" stroke-width="0.9" opacity="0.35" />
+            <line x1="16" y1="120" x2="359" y2="120" stroke="#D94E28" stroke-width="1" stroke-dasharray="4 4" opacity="0.65" />
+            <text x="20" y="114" fill="#D94E28" font-size="10" class="mono">高区线 0.28 · 买红利</text>
+            <line x1="16" y1="208" x2="359" y2="208" stroke="#1D7F5A" stroke-width="1" stroke-dasharray="4 4" opacity="0.7" />
+            <text x="20" y="222" fill="#1D7F5A" font-size="10" class="mono">低区线 0.16 · 买成长</text>
+            <path d="M 18 222 C 55 215, 78 232, 102 224 C 138 210, 165 142, 198 110 C 228 82, 248 64, 268 74 C 292 86, 308 168, 336 188 L 336 254 L 18 254 Z" fill="rgba(185,151,104,0.22)" />
+            <path d="M 18 222 C 55 215, 78 232, 102 224 C 138 210, 165 142, 198 110 C 228 82, 248 64, 268 74 C 292 86, 308 168, 336 188" fill="none" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round" />
+            <path d="M 18 222 C 55 215, 78 232, 102 224 C 138 210, 165 142, 198 110 C 228 82, 248 64, 268 74 C 292 86, 308 168, 336 188" fill="none" stroke="#D94E28" stroke-width="2.8" stroke-linecap="round" />
+            <circle cx="102" cy="224" r="3.5" fill="#1D7F5A" stroke="#FFF" stroke-width="1.5" />
+            <text x="82" y="242" fill="#57635C" font-size="10" class="mono">谷 0.14</text>
+            <circle cx="268" cy="74" r="3.5" fill="#1B2420" stroke="#FFF" stroke-width="1.5" />
+            <text x="242" y="64" fill="#1B2420" font-size="10" class="mono">峰 0.44</text>
+            <circle cx="336" cy="188" r="10" fill="#D94E28" opacity="0.2" />
+            <circle cx="336" cy="188" r="5" fill="#D94E28" stroke="#FFF" stroke-width="2" />
+          </svg>
+          <div style="position:relative;z-index:5;padding:48px 104px 0 18px;">
+            <div style="font-size:17px;font-weight:900;">周期罗盘 · 十年水位</div>
+            <div class="mono muted" style="font-size:11px;margin-top:2px;">2026-11-20 · 中间区山腰</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function mountD3Phone(containerId, opts) {
+      const state = {
+        tab: opts.mode === 'portfolio' ? '我的账本' : '周期路线',
+        scope: 'sectors',
+        pool: 1000,
+        cash: 5200,
+        ticks: 2,
+      };
+      const el = document.getElementById(containerId);
+      const hasTab = opts.mode === 'home' || opts.mode === 'portfolio';
+
+      function render() {
+        let body = '';
+        if (opts.mode === 'heatmap') {
+          const tiles = state.scope === 'sectors' ? HEATMAP_SECTORS : HEATMAP_CROSS;
+          body = `
+            <div style="padding:48px 18px 20px;">
+              <div style="padding-right:88px;margin-bottom:14px;">
+                <div style="font-size:17px;font-weight:900;">全球与产业热力地貌</div>
+                <div class="mono muted" style="font-size:11px;margin-top:2px;">色阶直读强弱 · 告别 32 张白卡片</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+                ${[
+                  { n: '恐慌指数 VIX', v: '35.90', p: '+26.28%', up: true },
+                  { n: '布伦特原油', v: '92.63', p: '+0.70%', up: true },
+                  { n: '黄金盎司', v: '3534.6', p: '-2.49%', up: false },
+                  { n: 'LME 铜', v: '554.86', p: '-3.04%', up: false },
+                ].map(m => `
+                  <div style="background:#FFF;border-radius:12px;padding:10px 12px;border:1px solid rgba(27,36,32,0.1);">
+                    <div class="muted" style="font-size:11px;">${m.n}</div>
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px;">
+                      <span class="cond" style="font-size:24px;font-weight:800;">${m.v}</span>
+                      <span class="mono ${m.up ? 'up' : 'down'}" style="font-size:11px;font-weight:700;">${m.p}</span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+              <div style="display:flex;gap:8px;margin-bottom:10px;">
+                <button data-scope="sectors" style="flex:1;padding:8px 0;border-radius:10px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:${state.scope === 'sectors' ? '#1B2420' : '#FFF'};color:${state.scope === 'sectors' ? '#FFF' : '#57635C'};">24 产业链热力</button>
+                <button data-scope="cross" style="flex:1;padding:8px 0;border-radius:10px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:${state.scope === 'cross' ? '#1B2420' : '#FFF'};color:${state.scope === 'cross' ? '#FFF' : '#57635C'};">AI / 日韩 / 有色</button>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;">
+                ${tiles.map(t => {
+                  const hot = t.p >= 2.5, cold = t.p <= -4;
+                  const bg = t.p >= 0 ? (hot ? '#D94E28' : 'rgba(217,78,40,0.16)') : (cold ? '#1D7F5A' : 'rgba(29,127,90,0.16)');
+                  const fg = (hot || cold) ? '#FFFFFF' : '#1B2420';
+                  const sub = (hot || cold) ? 'rgba(255,255,255,0.92)' : (t.p >= 0 ? '#D94E28' : '#1D7F5A');
+                  return `
+                    <div style="background:${bg};border-radius:10px;padding:10px 8px;text-align:center;">
+                      <div style="font-size:12px;font-weight:700;color:${fg};">${t.n}</div>
+                      <div class="mono" style="font-size:11px;font-weight:700;color:${sub};margin-top:3px;">${t.p >= 0 ? '+' : ''}${t.p.toFixed(2)}%</div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `;
+        } else if (opts.mode === 'backtest') {
+          body = `
+            <div style="padding:48px 18px 20px;">
+              <div style="padding-right:88px;margin-bottom:14px;">
+                <div style="font-size:17px;font-weight:900;">800 日回测轨迹</div>
+                <div class="mono muted" style="font-size:11px;margin-top:2px;">2023-08-02 ~ 2026-11-20</div>
+              </div>
+              <div style="background:#FFF;border-radius:18px;padding:14px;border:1px solid rgba(27,36,32,0.1);">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                  <div><div class="muted" style="font-size:11px;">年化 XIRR</div><div class="cond up" style="font-size:42px;font-weight:800;line-height:1;">7.39%</div></div>
+                  <div style="text-align:right;"><div class="muted" style="font-size:11px;">总收益 / 夏普</div><div class="mono" style="font-size:14px;font-weight:700;margin-top:2px;">+12.74% · 2.42</div></div>
+                </div>
+                <svg width="308" height="110" viewBox="0 0 308 110" style="margin-top:10px;">
+                  <path d="M 4 94 C 45 90, 72 78, 108 82 C 148 86, 178 52, 212 46 C 248 40, 272 28, 304 16 L 304 106 L 4 106 Z" fill="rgba(217,78,40,0.12)" />
+                  <path d="M 4 94 C 45 90, 72 78, 108 82 C 148 86, 178 52, 212 46 C 248 40, 272 28, 304 16" fill="none" stroke="#D94E28" stroke-width="2.5" stroke-linecap="round" />
+                  <circle cx="304" cy="16" r="4" fill="#D94E28" />
+                </svg>
+                <div class="mono faint" style="display:flex;justify-content:space-between;font-size:10px;">
+                  <span>累计投入 ¥165,000</span><span>期末 ¥186,016</span>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;">
+                <div style="background:#FFF;border-radius:12px;padding:10px 8px;text-align:center;border:1px solid rgba(27,36,32,0.1);"><div class="muted" style="font-size:11px;">低区买入</div><div class="cond down" style="font-size:26px;font-weight:800;margin-top:2px;">163日</div></div>
+                <div style="background:#FFF;border-radius:12px;padding:10px 8px;text-align:center;border:1px solid rgba(27,36,32,0.1);"><div class="muted" style="font-size:11px;">中间蓄水</div><div class="cond" style="font-size:26px;font-weight:800;margin-top:2px;">435日</div></div>
+                <div style="background:#FFF;border-radius:12px;padding:10px 8px;text-align:center;border:1px solid rgba(27,36,32,0.1);"><div class="muted" style="font-size:11px;">高区防守</div><div class="cond up" style="font-size:26px;font-weight:800;margin-top:2px;">202日</div></div>
+              </div>
+              <div style="margin-top:12px;background:#D7E2CE;border-radius:12px;padding:12px;font-size:12px;line-height:1.6;">
+                期间共触发 <strong>6 次</strong> 现金池突破回补，最大回撤控制在 24.94%，全部 171 条资金流水可追溯。
+              </div>
+            </div>
+          `;
+        } else if (state.tab === '周期路线') {
+          body = `
+            <div style="padding-bottom:20px;">
+              ${topoElevationHtml()}
+              <div style="background:#FFF;border-top-left-radius:24px;border-top-right-radius:24px;margin-top:-18px;position:relative;z-index:10;padding:18px 18px 20px;box-shadow:0 -8px 24px rgba(27,36,32,0.08);">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding-bottom:14px;border-bottom:1px solid rgba(27,36,32,0.1);">
+                  <div><div class="muted" style="font-size:11px;">轮动比值</div><div class="cond" style="font-size:34px;font-weight:800;line-height:1.05;margin-top:2px;">0.1846</div><div class="up" style="font-size:11px;font-weight:600;">24.3% 分位</div></div>
+                  <div style="text-align:center;border-left:1px solid rgba(27,36,32,0.1);border-right:1px solid rgba(27,36,32,0.1);"><div class="muted" style="font-size:11px;">红利四维</div><div class="cond" style="font-size:34px;font-weight:800;line-height:1.05;margin-top:2px;">6.57</div><div class="muted" style="font-size:11px;">门控通行</div></div>
+                  <div style="text-align:right;"><div class="muted" style="font-size:11px;">本周动作</div><div class="cond up" style="font-size:34px;font-weight:800;line-height:1.05;margin-top:2px;">¥1000</div><div class="muted" style="font-size:11px;">进现金池</div></div>
+                </div>
+                <div style="margin-top:14px;padding:12px 14px;background:#EFECE2;border-radius:12px;">
+                  <div style="font-size:13px;font-weight:700;">当前在山腰：按兵不动，蓄水待发</div>
+                  <div class="muted" style="font-size:12px;line-height:1.6;margin-top:4px;">距高区 +51.7%、距低区 -13.3%。宏观弱复苏分化（ERP 2.81%），本周定投暂存现金池。</div>
+                </div>
+                <button data-next="1" style="width:100%;margin-top:14px;padding:13px 16px;background:#D94E28;color:#FFF;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;">
+                  执行本周打卡：¥1,000 存入现金池
+                </button>
+                <div style="display:flex;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid rgba(27,36,32,0.1);font-size:12px;">
+                  <span>VIX <strong class="mono up">35.90 (+26.3%)</strong></span>
+                  <span>黄金 <strong class="mono down">-2.49%</strong></span>
+                  <span>AI算力 <strong class="mono up">+2.58%</strong></span>
+                </div>
+              </div>
+            </div>
+          `;
+        } else {
+          body = `
+            <div style="padding:48px 18px 20px;">
+              <div style="padding-right:88px;margin-bottom:14px;">
+                <div style="font-size:17px;font-weight:900;">我的周期账本</div>
+                <div class="mono muted" style="font-size:11px;margin-top:2px;">资金守恒 · 现金池蓄水机制</div>
+              </div>
+              <div style="background:#1B2420;color:#FFF;border-radius:18px;padding:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                  <div><div style="font-size:11px;color:#A3B0A8;">总资产估值</div><div class="cond" style="font-size:38px;font-weight:800;line-height:1.05;margin-top:2px;">¥${(20650 + state.pool + state.cash).toLocaleString()}</div></div>
+                  <div style="text-align:right;"><div style="font-size:11px;color:#A3B0A8;">累计浮盈</div><div class="mono" style="font-size:13px;font-weight:700;color:#FF8B70;">+¥650 (+3.25%)</div></div>
+                </div>
+                <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.12);">
+                  <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px;">
+                    <span style="color:#D7E2CE;">计划现金池蓄水位</span>
+                    <span class="mono" style="color:#FFB899;font-weight:700;">¥${state.pool.toLocaleString()} / 目标 ¥5,000</span>
+                  </div>
+                  <div style="display:flex;gap:4px;height:14px;">
+                    ${Array.from({ length: 10 }, (_, i) => `<div style="flex:1;border-radius:3px;background:${i < state.ticks ? '#D94E28' : 'rgba(255,255,255,0.16)'};"></div>`).join('')}
+                  </div>
+                </div>
+              </div>
+              <button data-addpool="1" style="width:100%;margin-top:12px;padding:12px 14px;background:#D94E28;color:#FFF;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;">
+                一键打卡：本周 ¥1,000 存入现金池
+              </button>
+              <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
+                <div style="background:#FFF;border-radius:14px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(27,36,32,0.1);">
+                  <div><div style="font-size:14px;font-weight:700;">红利低波100</div><div class="mono faint" style="font-size:11px;margin-top:2px;">515100 · 12,500份</div></div>
+                  <div style="text-align:right;"><div class="mono" style="font-size:14px;font-weight:700;">¥14,847.5</div><div class="mono up" style="font-size:12px;font-weight:700;">+6.05%</div></div>
+                </div>
+                <div style="background:#FFF;border-radius:14px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(27,36,32,0.1);">
+                  <div><div style="font-size:14px;font-weight:700;">创业板50</div><div class="mono faint" style="font-size:11px;margin-top:2px;">159949 · 8,000份</div></div>
+                  <div style="text-align:right;"><div class="mono" style="font-size:14px;font-weight:700;">¥5,802.4</div><div class="mono down" style="font-size:12px;font-weight:700;">-3.29%</div></div>
+                </div>
+              </div>
+              <div style="margin-top:12px;background:#FFF;border-radius:14px;padding:10px 14px;border:1px solid rgba(27,36,32,0.1);font-size:11px;color:#57635C;line-height:1.6;">
+                <strong style="color:#1B2420;">最近流水：</strong>2026-11-16 中间区存入 ¥1,000 至计划现金池；可用现金余额 ¥${state.cash.toLocaleString()}。
+              </div>
+            </div>
+          `;
+        }
+
+        const sc = 0.77;
+        el.innerHTML = `
+          <div style="width:${395 * sc}px;margin-bottom:10px;">
+            <div style="font-size:15px;font-weight:800;">${opts.label}</div>
+            <div class="muted" style="font-size:12px;margin-top:2px;">${opts.note}</div>
+          </div>
+          <div style="width:${395 * sc}px;height:${832 * sc}px;">
+            <div style="transform:scale(${sc});transform-origin:0 0;width:395px;">
+              <div class="wf-wrap">
+                <div class="wf-screen" data-mp-page="${opts.page}" data-mp-title="周期罗盘" data-mp-nav="custom" data-mp-nav-text="black">
+                  <div class="wf-status">
+                    <span>09:15</span>
+                    <svg width="66" height="12" viewBox="0 0 66 12" fill="#1B2420">
+                      <rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="6" width="3" height="6" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/>
+                      <path d="M30 11.2a1.2 1.2 0 100-2.4 1.2 1.2 0 000 2.4zM25.6 6.4a6.4 6.4 0 018.8 0l-1.1 1.1a4.8 4.8 0 00-6.6 0zM23 3.8a10 10 0 0114 0l-1.1 1.1a8.4 8.4 0 00-11.8 0z"/>
+                      <rect x="41" y="0.75" width="22" height="10.5" rx="3" fill="none" stroke="#1B2420" stroke-opacity="0.45" stroke-width="1"/><rect x="43" y="2.75" width="16" height="6.5" rx="1.5"/><rect x="64" y="4" width="1.5" height="4" rx="0.75" fill-opacity="0.45"/>
+                    </svg>
+                  </div>
+                  <div class="wf-capsule">
+                    <div class="wf-cap-half"><svg width="20" height="6" viewBox="0 0 20 6"><circle cx="3" cy="3" r="2" fill="#1B2420"/><circle cx="10" cy="3" r="2.6" fill="#1B2420"/><circle cx="17" cy="3" r="2" fill="#1B2420"/></svg></div>
+                    <div class="wf-cap-sep"></div>
+                    <div class="wf-cap-half"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="#1B2420" stroke-width="1.6"/><circle cx="9" cy="9" r="2.6" fill="#1B2420"/></svg></div>
+                  </div>
+                  <div class="wf-scroll ${hasTab ? '' : 'no-tab'}">${body}</div>
+                  ${hasTab ? `
+                    <div class="wf-tabbar">
+                      ${['周期路线', '我的账本'].map(t => `<div class="wf-tab ${state.tab === t ? 'active' : ''}" data-tab="${t}">${D3_ICONS[t]}<span>${t}</span></div>`).join('')}
+                    </div>
+                  ` : ''}
+                  <div class="wf-home-ind"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        el.querySelectorAll('[data-tab]').forEach(n => n.onclick = () => { state.tab = n.dataset.tab; render(); });
+        el.querySelectorAll('[data-scope]').forEach(n => n.onclick = () => { state.scope = n.dataset.scope; render(); });
+        const nextBtn = el.querySelector('[data-next]');
+        if (nextBtn) nextBtn.onclick = () => { state.tab = '我的账本'; render(); };
+        const addBtn = el.querySelector('[data-addpool]');
+        if (addBtn) addBtn.onclick = () => { if (state.cash >= 1000) { state.pool += 1000; state.cash -= 1000; state.ticks = Math.min(10, state.ticks + 2); render(); } };
+      }
+      render();
+    }
+
+    mountD3Phone('slot-p1', { mode: 'home', page: 'pages/index/index', label: '1. 周期海拔与水位', note: '一眼看清 10 年峰谷与当前山腰位置' });
+    mountD3Phone('slot-p2', { mode: 'heatmap', page: 'pages/markets/markets', label: '2. 全球与产业热力', note: '色阶热力块一屏扫清 24 产业强弱' });
+    mountD3Phone('slot-p3', { mode: 'portfolio', page: 'pages/portfolio/portfolio', label: '3. 一键周定投打卡', note: '现金池蓄水刻度条支持点击演练' });
+    mountD3Phone('slot-p4', { mode: 'backtest', page: 'pages/backtest/backtest', label: '4. 800 日回测轨迹', note: '6 次现金池回补战报与区间分布' });
+  </script>
+</body>
+</html>

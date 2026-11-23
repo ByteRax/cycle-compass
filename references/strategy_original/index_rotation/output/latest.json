@@ -1,0 +1,68 @@
+{
+  "as_of": "2026-11-20",
+  "data_quality": {
+    "bond_date": "2026-11-20",
+    "market_stale_days": 1,
+    "method_note": "PE分位用中证滚动市盈率全历史；股息率用D/P1；风格分位用红利低波100/创业板50近1500日分位。",
+    "pe_history_days": 2319,
+    "sources": {
+      "创业板50主源": "腾讯证券",
+      "创业板50行情": "腾讯/新浪 399673",
+      "十年期国债": "东方财富/中国债券信息网",
+      "红利低波100估值": "中证指数官网估值（近20个交易日）",
+      "红利低波100行情": "中证指数官网 930955"
+    },
+    "status": "ok",
+    "style_window_days": 1500,
+    "valuation_date": "2026-11-20",
+    "warnings": []
+  },
+  "generated_at": "2026-11-21T22:25:38+08:00",
+  "rotation": {
+    "action": "中间区：暂停指数买入，周定投资金1000元进现金池",
+    "date": "2026-11-20",
+    "dividend_close": 11878.27,
+    "growth_close": 2192.8,
+    "high_line": 0.28,
+    "is_weekly_day": false,
+    "low_line": 0.16,
+    "quantile_pct": 24.333333333333336,
+    "ratio": 0.18460600744047745,
+    "to_high_pct": 51.67437066763956,
+    "to_low_pct": 13.328931047063119,
+    "zone": "中间区"
+  },
+  "rotation_event": {
+    "cash_pool": 0.0,
+    "description": "仅计算信号，未更新计划状态",
+    "type": "dry_run"
+  },
+  "schema_version": 2,
+  "scoring": {
+    "action": "空仓·暂停定投（老仓不动）",
+    "amount": 0.0,
+    "b_pct100": 0.9620013291730093,
+    "bond10y": 1.5803,
+    "combined_action": "轮动中间区：红利打分仅观察，不新增买入；减仓事件单独保留",
+    "dividend_yield": 4.39,
+    "effective_amount": 0.0,
+    "formula_status": "权重/阈值为笔记规则；四维映射系数为样例反推校准值",
+    "gate_open": false,
+    "multiplier": 0.0,
+    "pe_percentile": 0.9077188443294524,
+    "pe_ttm": 9.61,
+    "reduce_ratio": 0.0,
+    "rsi70": 53.57424572765981,
+    "spread": 70.24249999999998,
+    "spread_pp": 2.8096999999999994,
+    "style": 24.26666666666667,
+    "style_percentile": 0.7573333333333333,
+    "tech": 22.981516318037574,
+    "total": 6.572453432148732,
+    "value": 9.228115567054761
+  },
+  "scoring_event": {
+    "description": "仅计算信号，未更新计划状态",
+    "type": "dry_run"
+  }
+}

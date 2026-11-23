@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>备选六 · 港式行情招牌墙（CycleCompass 微信小程序实验版）</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #0E1018; color: #FFF8E7;
+      font-family: -apple-system, "PingFang TC", "PingFang SC", "Noto Sans TC", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .mono { font-family: "SF Mono", "Menlo", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .serif { font-family: "Songti TC", "Songti SC", "Noto Serif TC", Georgia, serif; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+
+    .board {
+      position: relative; width: 1440px; height: 1180px; margin: 0 auto;
+      background: linear-gradient(180deg, #111420 0%, #090B12 100%);
+      overflow: hidden;
+    }
+    .wf-wrap {
+      display: inline-block; padding: 10px; background: #1A1D28; border-radius: 54px;
+      box-shadow: 0 0 0 1.5px #383F54, 0 26px 70px rgba(0,0,0,0.78);
+    }
+    .wf-screen {
+      position: relative; width: 375px; height: 812px; border-radius: 44px; overflow: hidden;
+      background: #121520; color: #FFF8E7;
+    }
+    .wf-status {
+      position: absolute; top: 0; left: 0; right: 0; height: 44px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 26px 0 30px; font-size: 15px; font-weight: 600; z-index: 40; pointer-events: none;
+    }
+    .wf-capsule {
+      position: absolute; top: 48px; right: 7px; width: 87px; height: 32px;
+      border-radius: 16px; display: flex; align-items: center; z-index: 50; pointer-events: none;
+      background: rgba(255,255,255,0.14); border: 0.5px solid rgba(255,255,255,0.28);
+    }
+    .wf-cap-half { flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .wf-cap-sep { width: 0.5px; height: 18px; background: rgba(255,255,255,0.28); }
+    .wf-scroll { position: absolute; top: 0; left: 0; right: 0; bottom: 83px; overflow-y: auto; }
+    .wf-tabbar {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 83px; padding-bottom: 34px;
+      background: #0C0E16; border-top: 1px solid rgba(255,248,231,0.14); display: flex; z-index: 30;
+    }
+    .wf-tab {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; font-size: 11px; color: #8A90A6; cursor: pointer; user-select: none;
+    }
+    .wf-tab.active { color: #F5C518; font-weight: 800; }
+    .wf-home-ind {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px; border-radius: 999px; background: rgba(255,248,231,0.5); z-index: 60;
+    }
+
+    /* HK Street Signboard Primitives */
+    .sign-red {
+      background: #C92323; color: #FFF8E7; border: 2.5px solid #FFF3D1;
+      box-shadow: 0 0 16px rgba(201,35,35,0.45), 3px 3px 0 #07080D;
+      text-shadow: 1.5px 1.5px 0 rgba(0,0,0,0.45);
+    }
+    .sign-yellow {
+      background: #F5C518; color: #121520; border: 2.5px solid #FFF8E7;
+      box-shadow: 0 0 14px rgba(245,197,24,0.35), 3px 3px 0 #07080D;
+    }
+    .sign-blue {
+      background: #1749B8; color: #FFF8E7; border: 2.5px solid #FFF3D1;
+      box-shadow: 0 0 16px rgba(23,73,184,0.45), 3px 3px 0 #07080D;
+      text-shadow: 1.5px 1.5px 0 rgba(0,0,0,0.45);
+    }
+    .sign-green {
+      background: #0D7A4E; color: #FFF8E7; border: 2.5px solid #FFF3D1;
+      box-shadow: 0 0 14px rgba(13,122,78,0.4), 3px 3px 0 #07080D;
+    }
+    .sign-vert { writing-mode: vertical-rl; letter-spacing: 0.14em; }
+    .chalkboard {
+      background: #161B1A; border: 2px solid #8A7452; border-radius: 6px; padding: 12px;
+      box-shadow: inset 0 0 18px rgba(0,0,0,0.5);
+    }
+    .up { color: #FF5959; }
+    .down { color: #36D693; }
+    .gold { color: #F5C518; }
+    .muted { color: #9BA3B8; }
+    .share-card {
+      width: 248px; background: #FFFFFF; border-radius: 8px; padding: 10px 8px 0;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.55); color: #111;
+    }
+  </style>
+</head>
+<body>
+  <div class="board" data-showboard="flow">
+    <!-- Overhead wires + flow connectors -->
+    <svg width="1440" height="1180" viewBox="0 0 1440 1180" style="position:absolute;inset:0;pointer-events:none;">
+      <path d="M-20,235 Q420,290 920,210 T1460,255" fill="none" stroke="rgba(255,248,231,0.14)" stroke-width="1.5" />
+      <path d="M-20,252 Q480,315 980,235 T1460,278" fill="none" stroke="rgba(255,248,231,0.09)" stroke-width="1" />
+      <path d="M350,625 C372,625 372,613 394,613" fill="none" stroke="#F5C518" stroke-width="2.2" stroke-dasharray="5 5" />
+      <circle cx="394" cy="613" r="4.5" fill="#F5C518" />
+      <path d="M696,669 C718,669 718,657 740,657" fill="none" stroke="#F5C518" stroke-width="2.2" stroke-dasharray="5 5" />
+      <circle cx="740" cy="657" r="4.5" fill="#F5C518" />
+      <path d="M1042,713 C1064,713 1064,701 1086,701" fill="none" stroke="#F5C518" stroke-width="2.2" stroke-dasharray="5 5" />
+      <circle cx="1086" cy="701" r="4.5" fill="#F5C518" />
+    </svg>
+
+    <!-- Header -->
+    <div style="position:absolute;left:48px;top:40px;width:820px;">
+      <div class="mono gold" style="font-size:13px;font-weight:700;margin-bottom:8px;">备选六 · 港式行情招牌墙（秒数轮盘 East 06 · 大胆实验版）</div>
+      <div class="serif" style="font-size:46px;font-weight:900;line-height:1.08;letter-spacing:0.04em;">週期羅盤 · 深夜行情檔</div>
+      <div style="font-size:15px;line-height:1.65;color:#B2B9CC;margin-top:10px;">
+        源自秒数轮盘 East 06「香港街招与招牌」：深夜墙面层叠竖横灯箱招牌与奶白外框，把 0.1846、VIX 35.90 与 24 产业做成高密度港式大排档行情墙（大胆实验款，适合社媒传播与高情绪辨识）。
+      </div>
+    </div>
+
+    <!-- Top-right Share Card -->
+    <div style="position:absolute;right:48px;top:24px;">
+      <div class="share-card">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#6E747B;margin-bottom:6px;">
+          <div style="width:16px;height:16px;border-radius:3px;background:#C92323;color:#FFF8E7;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center;">盤</div>
+          <span>週期羅盤</span>
+        </div>
+        <div style="font-size:14px;font-weight:600;color:#111;line-height:1.4;margin-bottom:8px;">今晚收市招牌：0.1846 中間區，¥1,000 入現金池</div>
+        <div data-mp-share="" style="width:232px;height:185px;background:#121520;padding:12px;position:relative;overflow:hidden;">
+          <div class="sign-red sign-vert serif" style="position:absolute;left:12px;top:12px;padding:8px 6px;font-size:16px;font-weight:900;">週期羅盤</div>
+          <div class="sign-yellow" style="position:absolute;left:64px;top:14px;right:12px;padding:8px 10px;">
+            <div style="font-size:10px;font-weight:800;">雙策略比值 · 中間區</div>
+            <div class="mono" style="font-size:28px;font-weight:900;line-height:1.05;">0.1846</div>
+          </div>
+          <div class="sign-blue" style="position:absolute;left:64px;top:88px;right:12px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:12px;font-weight:800;">恐慌 VIX</span>
+            <span class="mono gold" style="font-size:14px;font-weight:900;">35.90 +26.3%</span>
+          </div>
+          <div style="position:absolute;left:12px;right:12px;bottom:10px;background:#1A1F1E;border:1px solid #8A7452;padding:5px 8px;font-size:11px;color:#FFF8E7;text-align:center;">
+            本週指令：按兵不動 · ¥1,000 存現金池
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#8C929A;border-top:0.5px solid #ECEEF0;margin-top:8px;padding:6px 0;">
+          <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="#7d7df0" stroke-width="1.4"/><circle cx="6" cy="6" r="1.8" fill="#7d7df0"/></svg>
+          <span>小程序</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 Flow Phones (304px width each) -->
+    <div id="slot-s1" style="position:absolute;left:48px;top:256px;"></div>
+    <div id="slot-s2" style="position:absolute;left:394px;top:300px;"></div>
+    <div id="slot-s3" style="position:absolute;left:740px;top:344px;"></div>
+    <div id="slot-s4" style="position:absolute;left:1086px;top:388px;"></div>
+
+    <div style="position:absolute;left:48px;bottom:22px;font-size:13px;color:#9BA3B8;">
+      <strong style="color:#FFF8E7;">form 来自内容的哪里：</strong>借用香港金融街与夜市霓虹招牌的层叠密排，把收市行情做成一眼吸睛的「深夜行情招牌墙」（适合高辨识实验方向）。
+    </div>
+  </div>
+
+  <script>
+    const D6_ICONS = {
+      '招牌': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="10" rx="1"/><line x1="8" y1="14" x2="8" y2="20"/><line x1="16" y1="14" x2="16" y2="20"/></svg>',
+      '行情': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/></svg>',
+      '帳本': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="1"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="14" x2="13" y2="14"/></svg>',
+    };
+
+    function mountD6Phone(containerId, opts) {
+      const state = { tab: opts.initial, pool: 1000, cash: 5200, done: false };
+      const el = document.getElementById(containerId);
+
+      function render() {
+        let html = '';
+        if (opts.btOnly) {
+          html = `
+            <div style="padding:50px 16px 20px;">
+              <div style="padding-right:86px;margin-bottom:14px;">
+                <div class="serif gold" style="font-size:19px;font-weight:900;">八百日回測戰報</div>
+                <div class="mono muted" style="font-size:11px;">2023-08-02 ~ 2026-11-20</div>
+              </div>
+              <div class="sign-red" style="padding:14px;margin-bottom:12px;">
+                <div style="font-size:11px;font-weight:700;opacity:0.9;">年化回報 XIRR · 六次現金池回補</div>
+                <div class="mono" style="font-size:42px;font-weight:900;line-height:1.05;margin-top:2px;">7.39%</div>
+                <div class="mono" style="font-size:12px;margin-top:4px;">總收益 +12.74% · 期末 ¥186,016</div>
+              </div>
+              <div class="chalkboard">
+                <div class="gold" style="font-size:13px;font-weight:800;margin-bottom:8px;border-bottom:1px dashed rgba(255,248,231,0.25);padding-bottom:6px;">三區間日數明細（共 800 日）</div>
+                <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:13px;"><span>低區 · 創業板50</span><span class="mono down" style="font-weight:800;">163 日</span></div>
+                <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:13px;border-top:1px dashed rgba(255,248,231,0.12);"><span>中間區 · 現金池蓄水</span><span class="mono gold" style="font-weight:800;">435 日</span></div>
+                <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:13px;border-top:1px dashed rgba(255,248,231,0.12);"><span>高區 · 紅利低波100</span><span class="mono up" style="font-weight:800;">202 日</span></div>
+                <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:12px;border-top:1px dashed rgba(255,248,231,0.12);color:#9BA3B8;"><span>最大回撤 / 夏普</span><span class="mono">24.94% / 2.42</span></div>
+              </div>
+            </div>
+          `;
+        } else if (state.tab === '招牌') {
+          html = `
+            <div style="padding:48px 14px 20px;position:relative;">
+              <!-- Layered HK Signboards -->
+              <div style="position:relative;height:256px;margin-bottom:14px;">
+                <div class="sign-red sign-vert serif" style="position:absolute;left:2px;top:6px;padding:12px 10px;font-size:22px;font-weight:900;z-index:3;">週期羅盤</div>
+                <div class="sign-yellow" style="position:absolute;left:64px;top:40px;right:2px;padding:10px 12px;z-index:2;">
+                  <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:800;">
+                    <span>創業板50 ÷ 紅利低波100</span><span>1500日 24.3%</span>
+                  </div>
+                  <div class="mono" style="font-size:38px;font-weight:900;line-height:1.05;margin-top:2px;">0.1846</div>
+                  <div style="font-size:12px;font-weight:800;margin-top:2px;">中間區 · 本週 ¥1,000 存現金池</div>
+                </div>
+                <div class="sign-blue" style="position:absolute;left:54px;top:164px;width:168px;padding:9px 10px;z-index:4;">
+                  <div style="font-size:11px;font-weight:700;">紅利四維評分</div>
+                  <div class="mono gold" style="font-size:22px;font-weight:900;">6.57 <span style="font-size:11px;color:#FFF8E7;">/ 20</span></div>
+                </div>
+                <div class="sign-green" style="position:absolute;right:2px;top:172px;width:118px;padding:9px 8px;z-index:3;text-align:center;">
+                  <div style="font-size:10px;font-weight:700;">股債利差</div>
+                  <div class="mono" style="font-size:18px;font-weight:900;">2.81%</div>
+                </div>
+              </div>
+
+              <!-- LED strip -->
+              <div style="background:#2A0A0A;border:1.5px solid #FF5959;padding:8px 10px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:12px;font-weight:800;color:#FF7A7A;">● 恐慌指數 VIX 急升</span>
+                <span class="mono up" style="font-size:15px;font-weight:900;">35.90 (+26.28%)</span>
+              </div>
+
+              <!-- Chalkboard Price Menu -->
+              <div class="chalkboard">
+                <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px dashed rgba(255,248,231,0.28);padding-bottom:6px;margin-bottom:8px;">
+                  <span class="gold" style="font-size:13px;font-weight:800;">今晚宏觀價目表</span>
+                  <span class="mono muted" style="font-size:10px;">2026-11-20</span>
+                </div>
+                ${[
+                  { n: '布倫特原油', v: '92.63', p: '+0.70%', up: true },
+                  { n: '黃金盎司', v: '3534.6', p: '-2.49%', up: false },
+                  { n: 'LME 銅', v: '554.86', p: '-3.04%', up: false },
+                  { n: 'AI 算力 / Token', v: '景氣高', p: '+3.73%', up: true },
+                  { n: '韓國 KOSPI', v: '回調', p: '-5.21%', up: false },
+                ].map(r => `
+                  <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px dashed rgba(255,248,231,0.1);">
+                    <span>${r.n}</span>
+                    <span><span class="mono muted" style="margin-right:8px;">${r.v}</span><strong class="mono ${r.up ? 'up' : 'down'}">${r.p}</strong></span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        } else if (state.tab === '行情') {
+          html = `
+            <div style="padding:50px 14px 20px;">
+              <div style="padding-right:86px;margin-bottom:12px;">
+                <div class="serif gold" style="font-size:19px;font-weight:900;">板塊霓虹行情牆</div>
+                <div class="mono muted" style="font-size:11px;">紅升綠跌 · 招牌強弱一目瞭然</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+                <div class="sign-red" style="padding:10px;"><div style="font-size:12px;font-weight:800;">韓國存儲</div><div class="mono" style="font-size:20px;font-weight:900;">+4.57%</div></div>
+                <div class="sign-red" style="padding:10px;"><div style="font-size:12px;font-weight:800;">AI Token / 存儲</div><div class="mono" style="font-size:20px;font-weight:900;">+3.73%</div></div>
+                <div class="sign-yellow" style="padding:10px;"><div style="font-size:12px;font-weight:800;">GPU / 雲算力</div><div class="mono" style="font-size:20px;font-weight:900;">+3.66%</div></div>
+                <div class="sign-blue" style="padding:10px;"><div style="font-size:12px;font-weight:800;">半導體 / 光伏</div><div class="mono" style="font-size:20px;font-weight:900;">+2.85%</div></div>
+                <div class="sign-green" style="padding:10px;"><div style="font-size:12px;font-weight:800;">日經 225</div><div class="mono" style="font-size:20px;font-weight:900;">-5.06%</div></div>
+                <div class="sign-green" style="padding:10px;"><div style="font-size:12px;font-weight:800;">白銀 / 金屬銻</div><div class="mono" style="font-size:20px;font-weight:900;">-6.60%</div></div>
+              </div>
+              <div class="chalkboard" style="font-size:12px;line-height:1.6;color:#D6DCE8;">
+                <strong class="gold">盤後速評：</strong>科技算力與存儲鏈全線領漲，貴金屬與日韓大盤急跌；宏觀仍處弱復甦分化期。
+              </div>
+            </div>
+          `;
+        } else {
+          html = `
+            <div style="padding:50px 14px 20px;">
+              <div style="padding-right:86px;margin-bottom:12px;">
+                <div class="serif gold" style="font-size:19px;font-weight:900;">模擬實盤帳本</div>
+                <div class="mono muted" style="font-size:11px;">資金守恆 · 雙記帳審計</div>
+              </div>
+              <div class="sign-blue" style="padding:14px;margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span>總資產估值</span><span class="gold">+¥650 (+3.25%)</span></div>
+                <div class="mono" style="font-size:34px;font-weight:900;margin-top:2px;">¥${(20650 + state.pool + state.cash).toLocaleString()}</div>
+                <div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,248,231,0.25);font-size:12px;">
+                  <span>現金池 <strong class="mono gold">¥${state.pool.toLocaleString()}</strong></span>
+                  <span>可用 <strong class="mono">¥${state.cash.toLocaleString()}</strong></span>
+                </div>
+              </div>
+              <button data-ci="1" class="${state.done ? 'sign-green' : 'sign-yellow'}" style="width:100%;padding:12px;font-size:14px;font-weight:900;cursor:pointer;margin-bottom:12px;">
+                ${state.done ? '已打卡：¥1,000 入現金池' : '一鍵打卡：¥1,000 存現金池'}
+              </button>
+              <div class="chalkboard">
+                <div class="gold" style="font-size:12px;font-weight:800;margin-bottom:6px;">持倉清單</div>
+                <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px dashed rgba(255,248,231,0.18);">
+                  <div><div style="font-size:13px;font-weight:700;">紅利低波100</div><div class="mono muted" style="font-size:10px;">515100 · 12,500份</div></div>
+                  <div style="text-align:right;"><div class="mono" style="font-size:13px;font-weight:700;">¥14,847.5</div><div class="mono up" style="font-size:12px;font-weight:800;">+6.05%</div></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px dashed rgba(255,248,231,0.18);">
+                  <div><div style="font-size:13px;font-weight:700;">創業板50</div><div class="mono muted" style="font-size:10px;">159949 · 8,000份</div></div>
+                  <div style="text-align:right;"><div class="mono" style="font-size:13px;font-weight:700;">¥5,802.4</div><div class="mono down" style="font-size:12px;font-weight:800;">-3.29%</div></div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        const sc = 0.77;
+        el.innerHTML = `
+          <div style="width:${395 * sc}px;margin-bottom:10px;">
+            <div style="font-size:15px;font-weight:800;">${opts.label}</div>
+            <div class="muted" style="font-size:12px;margin-top:2px;">${opts.note}</div>
+          </div>
+          <div style="width:${395 * sc}px;height:${832 * sc}px;">
+            <div style="transform:scale(${sc});transform-origin:0 0;width:395px;">
+              <div class="wf-wrap">
+                <div class="wf-screen" data-mp-page="${opts.page}">
+                  <div class="wf-status">
+                    <span>21:40</span>
+                    <svg width="66" height="12" viewBox="0 0 66 12" fill="#FFF8E7">
+                      <rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="6" width="3" height="6" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/>
+                      <path d="M30 11.2a1.2 1.2 0 100-2.4 1.2 1.2 0 000 2.4zM25.6 6.4a6.4 6.4 0 018.8 0l-1.1 1.1a4.8 4.8 0 00-6.6 0zM23 3.8a10 10 0 0114 0l-1.1 1.1a8.4 8.4 0 00-11.8 0z"/>
+                      <rect x="41" y="0.75" width="22" height="10.5" rx="3" fill="none" stroke="#FFF8E7" stroke-opacity="0.45" stroke-width="1"/><rect x="43" y="2.75" width="16" height="6.5" rx="1.5"/><rect x="64" y="4" width="1.5" height="4" rx="0.75" fill-opacity="0.45"/>
+                    </svg>
+                  </div>
+                  <div class="wf-capsule">
+                    <div class="wf-cap-half"><svg width="20" height="6" viewBox="0 0 20 6"><circle cx="3" cy="3" r="2" fill="#fff"/><circle cx="10" cy="3" r="2.6" fill="#fff"/><circle cx="17" cy="3" r="2" fill="#fff"/></svg></div>
+                    <div class="wf-cap-sep"></div>
+                    <div class="wf-cap-half"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="9" cy="9" r="2.6" fill="#fff"/></svg></div>
+                  </div>
+                  <div class="wf-scroll" style="${opts.btOnly ? 'bottom:0;' : ''}">${html}</div>
+                  ${opts.btOnly ? '' : `
+                    <div class="wf-tabbar">
+                      ${['招牌', '行情', '帳本'].map(t => `<div class="wf-tab ${state.tab === t ? 'active' : ''}" data-tab="${t}">${D6_ICONS[t]}<span>${t}</span></div>`).join('')}
+                    </div>
+                  `}
+                  <div class="wf-home-ind"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        el.querySelectorAll('[data-tab]').forEach(n => n.onclick = () => { state.tab = n.dataset.tab; render(); });
+        const ci = el.querySelector('[data-ci]');
+        if (ci) ci.onclick = () => { if (!state.done) { state.pool += 1000; state.cash -= 1000; state.done = true; render(); } };
+      }
+      render();
+    }
+
+    mountD6Phone('slot-s1', { initial: '招牌', page: 'pages/index/index', label: '1. 招牌首屏', note: '豎橫層疊燈箱 + 底部手寫黑板價目表' });
+    mountD6Phone('slot-s2', { initial: '行情', page: 'pages/markets/markets', label: '2. 霓虹板塊牆', note: '高對比紅黃藍綠燈箱直讀強弱板塊' });
+    mountD6Phone('slot-s3', { initial: '帳本', page: 'pages/portfolio/portfolio', label: '3. 模擬實盤帳本', note: '點擊黃色燈箱按鈕實測 ¥1,000 打卡' });
+    mountD6Phone('slot-s4', { initial: '', btOnly: true, page: 'pages/backtest/backtest', label: '4. 八百日戰報', note: '大字燈箱 XIRR 7.39% + 黑板區間明細' });
+  </script>
+</body>
+</html>

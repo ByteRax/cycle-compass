@@ -1,0 +1,107 @@
+@import 'tailwindcss';
+
+@source "./**/*.{html,js,ts,jsx,tsx,vue}";
+@source not "../node_modules";
+@source not "../dist";
+@source not "../unpackage";
+
+/* Tailwind CSS v4 主题变量：方向一（精密航海仪器盘）× 方向四（三环信号颜色编码） */
+@theme {
+  --color-brand: #e5b352;
+  --color-brand-light: rgba(229, 179, 82, 0.16);
+  --color-brand-dark: #090c0f;
+  --color-brand-secondary: #2ad1a3;
+  --color-brand-accent: #f5b731;
+
+  /* 金融红涨绿跌 Token (中国 A 股市场语义，收敛印刷色感) */
+  --color-rise: #f05a50;
+  --color-rise-subtle: rgba(240, 90, 80, 0.16);
+  --color-fall: #2ad1a3;
+  --color-fall-subtle: rgba(42, 209, 163, 0.16);
+  --color-neutral: #9aa5b1;
+  --color-neutral-subtle: rgba(154, 165, 177, 0.14);
+
+  /* 墨曜石暗场背景与仪器面板层级 */
+  --color-page: #090c0f;
+  --color-card: #12161b;
+  --color-elevated: #181e25;
+}
+
+@layer base {
+  :root,
+  page {
+    --cc-brand-primary: #e5b352;
+    --cc-brand-secondary: #2ad1a3;
+    --cc-brand-accent: #f5b731;
+
+    --cc-up: #f05a50;
+    --cc-up-subtle: rgba(240, 90, 80, 0.16);
+    --cc-down: #2ad1a3;
+    --cc-down-subtle: rgba(42, 209, 163, 0.16);
+    --cc-neutral: #9aa5b1;
+    --cc-neutral-subtle: rgba(154, 165, 177, 0.14);
+
+    --cc-bg-page: #090c0f;
+    --cc-bg-card: #12161b;
+    --cc-bg-elevated: #181e25;
+
+    --cc-text-primary: #f1efea;
+    --cc-text-secondary: #9aa5b1;
+    --cc-text-muted: #64707c;
+
+    --cc-border: rgba(241, 239, 234, 0.09);
+    --cc-border-strong: rgba(241, 239, 234, 0.18);
+    --cc-border-focus: #e5b352;
+
+    background-color: #090c0f;
+    color: #f1efea;
+  }
+}
+
+.cc-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 涨跌辅助类与向后兼容类名 */
+.text-up {
+  color: var(--cc-up);
+}
+.bg-up {
+  background-color: var(--cc-up);
+}
+.bg-up-subtle {
+  background-color: var(--cc-up-subtle);
+}
+
+.text-down {
+  color: var(--cc-down);
+}
+.bg-down {
+  background-color: var(--cc-down);
+}
+.bg-down-subtle {
+  background-color: var(--cc-down-subtle);
+}
+
+.text-neutral {
+  color: var(--cc-neutral);
+}
+.bg-neutral-subtle {
+  background-color: var(--cc-neutral-subtle);
+}
+
+/* 跨子组件共享 Tab 面板动效与下划线激活态（避免微信小程序 scoped 样式隔离失效） */
+@keyframes tabFadeIn {
+  from {
+    opacity: 0.88;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tab-content-panel {
+  animation: tabFadeIn 0.18s ease-out;
+}

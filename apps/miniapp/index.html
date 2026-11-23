@@ -1,0 +1,27 @@
+<!doctype html>
+<html build-time="%BUILD_TIME%">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      var coverSupport =
+        'CSS' in window &&
+        typeof CSS.supports === 'function' &&
+        (CSS.supports('top: env(a)') || CSS.supports('top: constant(a)'))
+      document.write(
+        '<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0' +
+          (coverSupport ? ', viewport-fit=cover' : '') +
+          '" />'
+      )
+    </script>
+    <link href="/pwa-192x192.png" rel="apple-touch-icon" />
+    <link color="#f6d2d2" href="/safari-pinned-tab.svg" rel="mask-icon" />
+    <meta content="#f6d2d2" name="msapplication-TileColor" />
+    <title>%VITE_APP_TITLE%</title>
+    <!--preload-links-->
+    <!--app-context-->
+  </head>
+  <body>
+    <div id="app"><!--app-html--></div>
+    <script src="/src/main.ts" type="module"></script>
+  </body>
+</html>

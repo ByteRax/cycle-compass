@@ -1,0 +1,26 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "status": "healthy",
+    "timestamp": "2026-11-22T20:02:58.060295",
+    "services": {
+      "api": "ok",
+      "strategy_engine": "ok",
+      "backtesting_engine": "ok",
+      "market_data": "offline_seed"
+    },
+    "monitored_sources": {
+      "dividend_930955": {
+        "source": "Offline Seed CSV / Snapshot",
+        "as_of": "2026-11-20",
+        "status": "offline_seed"
+      },
+      "growth_399673": {
+        "source": "Tencent Finance Realtime",
+        "as_of": "2026-11-22",
+        "status": "ok"
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "symbol": "399673",
+    "name": "创业板50",
+    "category": "equity",
+    "price": 2192.8,
+    "change": -80.24,
+    "change_pct": -3.53,
+    "open": null,
+    "high": null,
+    "low": null,
+    "volume": null,
+    "turnover": null,
+    "currency": "CNY",
+    "as_of": "2026-11-22",
+    "meta": {
+      "source_name": "Tencent Finance Realtime",
+      "symbol": "399673",
+      "as_of": "2026-11-22",
+      "status": "ok",
+      "latency_ms": 31.6,
+      "warning": null,
+      "updated_at": "2026-11-22T20:02:58.060256"
+    }
+  }
+}

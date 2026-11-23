@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>方向二 · 财经报刊研报（CycleCompass 微信小程序）</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #E9E2D6; color: #1A1918;
+      font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .serif { font-family: "Songti SC", "STSong", "Noto Serif SC", Georgia, serif; }
+    .mono { font-family: "SF Mono", "Menlo", "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+
+    .board {
+      position: relative; width: 1440px; height: 2220px; margin: 0 auto;
+      background: #EDE7DC; overflow: hidden;
+    }
+    .wf-wrap {
+      display: inline-block; padding: 10px; background: #1A1918; border-radius: 54px;
+      box-shadow: 0 0 0 1.5px #383531, 0 24px 60px rgba(26,25,24,0.22);
+    }
+    .wf-screen {
+      position: relative; width: 375px; height: 812px; border-radius: 44px; overflow: hidden;
+      background: #F6F1E9; color: #1A1918;
+    }
+    .wf-status {
+      position: absolute; top: 0; left: 0; right: 0; height: 44px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 26px 0 30px; font-size: 15px; font-weight: 600; z-index: 40; pointer-events: none;
+    }
+    .wf-capsule {
+      position: absolute; top: 48px; right: 7px; width: 87px; height: 32px;
+      border-radius: 16px; display: flex; align-items: center; z-index: 50; pointer-events: none;
+      background: rgba(255,255,255,0.75); border: 0.5px solid rgba(26,25,24,0.14);
+    }
+    .wf-cap-half { flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .wf-cap-sep { width: 0.5px; height: 18px; background: rgba(26,25,24,0.14); }
+    .wf-scroll { position: absolute; top: 0; left: 0; right: 0; bottom: 83px; overflow-y: auto; }
+    .wf-scroll.no-tab { bottom: 0; }
+    .wf-tabbar {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 83px; padding-bottom: 34px;
+      background: #F6F1E9; border-top: 1px solid #D8CFC0; display: flex; z-index: 30;
+    }
+    .wf-tab {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; font-size: 10px; color: #8D867B; cursor: pointer; user-select: none;
+    }
+    .wf-tab.active { color: #1C355E; font-weight: 700; }
+    .wf-home-ind {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px; border-radius: 999px; background: rgba(26,25,24,0.75); z-index: 60;
+    }
+
+    .d2-mast { padding: 48px 104px 10px 18px; border-bottom: 2px solid #1A1918; }
+    .d2-body { padding: 14px 18px 24px; }
+    .up { color: #C63A2E; }
+    .down { color: #1B7A56; }
+    .navy { color: #1C355E; }
+    .muted { color: #5E5951; }
+    .faint { color: #8D867B; }
+    .d2-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #D8CFC0; }
+    .d2-subtabs { display: flex; gap: 18px; border-bottom: 1px solid #D8CFC0; margin-bottom: 10px; }
+    .d2-subtab { padding-bottom: 7px; font-size: 13px; color: #5E5951; cursor: pointer; border-bottom: 2px solid transparent; }
+    .d2-subtab.on { color: #1C355E; font-weight: 700; border-bottom-color: #1C355E; }
+    .d2-btn-navy {
+      background: #1C355E; color: #F6F1E9; border: none; padding: 10px 12px;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .d2-btn-line {
+      background: transparent; color: #1A1918; border: 1px solid #1A1918; padding: 10px 12px;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .share-card {
+      width: 248px; background: #FFFFFF; border-radius: 8px; padding: 10px 8px 0;
+      box-shadow: 0 6px 18px rgba(26,25,24,0.12); border: 1px solid #DDD5C7;
+    }
+  </style>
+</head>
+<body>
+  <div class="board" data-showboard="closeup">
+    <!-- Left Header -->
+    <div style="position:absolute;left:56px;top:48px;width:375px;">
+      <div class="mono navy" style="font-size:12px;font-weight:700;margin-bottom:8px;">方向二 · 财经报刊研报（暖纸排印版）</div>
+      <div class="serif" style="font-size:44px;font-weight:900;line-height:1.1;">周期罗盘</div>
+      <div style="font-size:14px;line-height:1.68;color:#5E5951;margin-top:12px;">
+        借鉴 Financial Times 数据新闻与书籍排印：彻底放弃圆角阴影卡片，用结论句作头条、1px 发丝线表格与严格等比例三区间标尺撑起机构投研简报感。
+      </div>
+    </div>
+
+    <!-- Left Main Phone -->
+    <div id="slot-brief" style="position:absolute;left:56px;top:276px;"></div>
+
+    <!-- Center Top: WeChat Share Card -->
+    <div style="position:absolute;left:476px;top:48px;width:508px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;">微信群 5:4 报刊头条转发卡</div>
+      <div style="background:#E1D8C8;padding:18px;border-radius:12px;display:flex;gap:18px;align-items:center;">
+        <div class="share-card" style="flex-shrink:0;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#6B665D;margin-bottom:6px;">
+            <div style="width:16px;height:16px;border-radius:999px;background:#1C355E;color:#F6F1E9;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;">周</div>
+            <span>周期罗盘</span>
+          </div>
+          <div style="font-size:14px;font-weight:500;color:#1A1918;line-height:1.4;margin-bottom:8px;">收市简报：比值 0.1846 停在中间区，本周存现金池</div>
+          <div data-mp-share="" style="width:232px;height:185px;background:#F6F1E9;border:1px solid #D8CFC0;padding:14px;display:flex;flex-direction:column;justify-content:space-between;">
+            <div style="border-bottom:1.5px solid #1A1918;padding-bottom:5px;display:flex;justify-content:space-between;font-size:10px;">
+              <span class="serif" style="font-weight:900;">周期罗盘 · 简报</span>
+              <span class="mono muted">2026-11-20</span>
+            </div>
+            <div class="serif" style="font-size:17px;font-weight:900;line-height:1.35;color:#1A1918;">比值 0.1846 停在中间区，¥1,000 进现金池</div>
+            <div>
+              <div style="display:flex;height:12px;border:1px solid #1A1918;position:relative;">
+                <div style="width:15%;background:rgba(27,122,86,0.24);"></div>
+                <div style="width:30%;background:rgba(28,53,94,0.22);"></div>
+                <div style="width:55%;background:rgba(198,58,46,0.16);"></div>
+                <div style="position:absolute;left:21.15%;top:-3px;bottom:-3px;width:2.5px;background:#C63A2E;"></div>
+              </div>
+              <div class="mono muted" style="display:flex;justify-content:space-between;font-size:9px;margin-top:4px;">
+                <span>低区 0.16</span><span>高区 0.28</span><span>峰 0.44</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#8E887E;border-top:0.5px solid #ECE7DF;margin-top:8px;padding:6px 0;">
+            <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="#7d7df0" stroke-width="1.4"/><circle cx="6" cy="6" r="1.8" fill="#7d7df0"/></svg>
+            <span>小程序</span>
+          </div>
+        </div>
+        <div style="font-size:12px;color:#5E5951;line-height:1.75;">
+          <strong style="color:#1A1918;display:block;margin-bottom:4px;">主入口：公众号与群聊转发</strong>
+          用户在微信群一眼读完「刊头 + 结论句 + 迷你标尺」，点进来直接落在同一张收市简报，阅读上下文完全连贯。
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Main: 1.4x Closeup of Signature Ruler + 4D Monochrome Score -->
+    <div style="position:absolute;left:476px;top:376px;width:508px;">
+      <div style="margin-bottom:10px;">
+        <div style="font-size:15px;font-weight:700;">局部特写 · 等比例三区间标尺与单色阶四维评分</div>
+        <div style="font-size:13px;color:#5E5951;margin-top:2px;">修复原版 &lt; 乱码、标注碰撞与彩虹四色条，严格按 0.10–0.50 数值比例切分</div>
+      </div>
+      <div id="closeup-ruler" style="background:#F6F1E9;border:1.5px solid #1A1918;padding:24px 26px;box-shadow:0 16px 40px rgba(26,25,24,0.10);"></div>
+
+      <div style="margin-top:24px;background:#F6F1E9;border:1px solid #D8CFC0;padding:18px 20px;">
+        <div class="mono navy" style="font-size:11px;font-weight:700;margin-bottom:8px;">色彩推导 · 机构纸质研报</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <div style="flex:1;height:26px;background:#F6F1E9;border:1px solid #D8CFC0;"></div>
+          <div style="flex:1;height:26px;background:#1A1918;"></div>
+          <div style="flex:1;height:26px;background:#1C355E;"></div>
+          <div style="flex:1;height:26px;background:#C63A2E;"></div>
+          <div style="flex:1;height:26px;background:#1B7A56;"></div>
+        </div>
+        <div style="font-size:12px;color:#5E5951;line-height:1.7;">
+          <strong style="color:#1A1918;">form 来自内容的哪里：</strong>量化双策略与 800 日回测本质是一份冷静、可审计的每日收市投研简报；暖纸底 <span class="mono">#F6F1E9</span> 护眼耐读，油墨藏青 <span class="mono">#1C355E</span> 承接原品牌深蓝并压低饱和度。
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Stacked Column: 3 Secondary Phones (300px+ legible width) -->
+    <div id="slot-board" style="position:absolute;left:1084px;top:48px;"></div>
+    <div id="slot-ledger" style="position:absolute;left:1084px;top:768px;"></div>
+    <div id="slot-backtest" style="position:absolute;left:1084px;top:1488px;"></div>
+  </div>
+
+  <script>
+    function rulerHtml(compact) {
+      const dims = [
+        { k: '技术面 50%', v: 23.0 },
+        { k: '股息利差 25%', v: 70.2 },
+        { k: '估值分位 15%', v: 9.2 },
+        { k: '市场风格 10%', v: 24.3 },
+      ];
+      return `
+        <div style="padding:${compact ? '10px 0' : '4px 0'};">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+            <span class="serif" style="font-size:${compact ? 14 : 17}px;font-weight:700;">创业板50 ÷ 红利低波100</span>
+            <span class="mono navy" style="font-size:${compact ? 18 : 24}px;font-weight:700;">0.1846</span>
+          </div>
+          <div style="position:relative;height:24px;margin-bottom:4px;">
+            <div style="position:absolute;left:21.15%;transform:translateX(-25%);bottom:0;">
+              <span class="mono up" style="font-size:${compact ? 10 : 12}px;font-weight:700;white-space:nowrap;">当前 0.1846 ▼</span>
+            </div>
+            <div style="position:absolute;left:84.97%;transform:translateX(-72%);bottom:0;">
+              <span class="mono muted" style="font-size:${compact ? 10 : 11}px;white-space:nowrap;">峰值 0.4399</span>
+            </div>
+          </div>
+          <div style="position:relative;display:flex;height:${compact ? 22 : 28}px;border:1px solid #1A1918;">
+            <div style="width:15%;background:rgba(27,122,86,0.16);border-right:1px solid #1A1918;display:flex;align-items:center;justify-content:center;">
+              <span class="down" style="font-size:${compact ? 10 : 11}px;font-weight:700;">低区</span>
+            </div>
+            <div style="width:30%;background:rgba(28,53,94,0.12);border-right:1px solid #1A1918;display:flex;align-items:center;justify-content:center;">
+              <span class="navy" style="font-size:${compact ? 10 : 11}px;font-weight:700;">中间区 · 空仓</span>
+            </div>
+            <div style="width:55%;background:rgba(198,58,46,0.10);display:flex;align-items:center;justify-content:center;">
+              <span class="up" style="font-size:${compact ? 10 : 11}px;font-weight:700;">高区 · 买红利低波100</span>
+            </div>
+            <div style="position:absolute;left:21.15%;top:-4px;bottom:-4px;width:2.5px;background:#C63A2E;"></div>
+            <div style="position:absolute;left:10%;bottom:-4px;width:1.5px;height:6px;background:#1B7A56;"></div>
+          </div>
+          <div class="mono muted" style="display:flex;justify-content:space-between;margin-top:6px;font-size:${compact ? 10 : 11}px;">
+            <span>0.10（低谷 0.14）</span><span>0.16</span><span>0.28</span><span>0.50</span>
+          </div>
+          <div style="margin-top:${compact ? 12 : 18}px;border-top:1px solid #D8CFC0;padding-top:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+              <span style="font-size:${compact ? 12 : 14}px;font-weight:700;">红利低波100 四维评分</span>
+              <span class="mono navy" style="font-size:${compact ? 11 : 13}px;font-weight:700;">6.57 / 20 · 门控通行</span>
+            </div>
+            ${dims.map(r => `
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:${compact ? 6 : 8}px;">
+                <span class="muted" style="width:${compact ? 88 : 104}px;font-size:${compact ? 11 : 12}px;flex-shrink:0;">${r.k}</span>
+                <div style="flex:1;height:${compact ? 5 : 7}px;background:#E5DDD0;">
+                  <div style="width:${r.v}%;height:100%;background:${r.v >= 60 ? '#1C355E' : '#8D867B'};"></div>
+                </div>
+                <span class="mono" style="width:36px;text-align:right;font-size:${compact ? 11 : 12}px;font-weight:600;">${r.v.toFixed(1)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    document.getElementById('closeup-ruler').innerHTML = rulerHtml(false);
+
+    const D2_ICONS = {
+      '简报': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16M4 12h16M4 19h10"/></svg>',
+      '盘面': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l5-5 4 4 9-9"/></svg>',
+      '账本': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="1.5"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="14" x2="14" y2="14"/></svg>',
+    };
+
+    const D2_ROWS = {
+      macro: [
+        { k: '恐慌指数 VIX', sub: 'CBOE 波动率', v: '35.90', p: 26.28 },
+        { k: '天然气', sub: 'NYMEX', v: '3.79', p: 2.99 },
+        { k: '美债长债', sub: 'US20Y', v: '81.45', p: 1.37 },
+        { k: '布伦特原油', sub: 'ICE USD', v: '92.63', p: 0.70 },
+        { k: '美元指数', sub: 'DXY', v: '103.84', p: 0.25 },
+        { k: '黄金盎司', sub: 'LBMA USD', v: '3534.64', p: -2.49 },
+        { k: 'LME 铜', sub: '工业金属', v: '554.86', p: -3.04 },
+        { k: '白银盎司', sub: 'LBMA USD', v: '41.18', p: -3.90 },
+      ],
+      ai: [
+        { k: 'Token 价格', sub: 'AI 产品', v: '景气高', p: 3.73 },
+        { k: 'SSD 固态', sub: '存储设备', v: '紧缺', p: 3.67 },
+        { k: '云算力租赁', sub: 'AI 产品', v: '高位', p: 3.66 },
+        { k: 'GPU 芯片', sub: '算力硬件', v: '繁荣期', p: 3.63 },
+        { k: 'MLCC 电容', sub: '电子元件', v: '上行', p: 2.44 },
+        { k: 'DRAM 内存', sub: '存储芯片', v: '坚挺', p: 2.35 },
+        { k: '光模块 CPO', sub: '1.6T 交付', v: '繁荣期', p: 2.32 },
+        { k: '电力现货', sub: '基荷能耗', v: '平稳', p: -0.08 },
+      ],
+      apac: [
+        { k: '韩国存储', sub: 'KR 核心产业', v: '领涨', p: 4.57 },
+        { k: '孟买 SENSEX', sub: '亚洲综合', v: '收涨', p: 2.30 },
+        { k: '日本半导体设备', sub: 'JP 核心产业', v: '稳健', p: 1.14 },
+        { k: 'LME 铝', sub: '工业金属', v: '走强', p: 0.75 },
+        { k: '日经 225', sub: '日本综合', v: '回调', p: -5.06 },
+        { k: '韩国 KOSPI', sub: '韩国综合', v: '回调', p: -5.21 },
+        { k: '金属白银', sub: '贵金属', v: '承压', p: -6.60 },
+        { k: '金属锑', sub: '小金属', v: '承压', p: -7.37 },
+      ],
+    };
+
+    function mountD2Phone(containerId, opts) {
+      const state = { tab: opts.initial, cat: 'macro', pool: 1000, cash: 5200, done: false };
+      const el = document.getElementById(containerId);
+
+      function render() {
+        let inner = '';
+        if (opts.detail) {
+          inner = `
+            <div class="d2-mast">
+              <div class="serif" style="font-size:18px;font-weight:900;letter-spacing:0.04em;">周期罗盘 · 回测战报</div>
+              <div class="mono muted" style="font-size:10px;margin-top:2px;">2023-08-02 ~ 2026-11-20 · 800 交易日</div>
+            </div>
+            <div class="d2-body">
+              <h2 class="serif" style="font-size:19px;font-weight:900;line-height:1.38;">800 日双策略定投 XIRR 达 7.39%，6 次现金池回补跑赢基准</h2>
+              <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #1A1918;border-bottom:1px solid #D8CFC0;margin-top:12px;padding:10px 0;gap:10px;">
+                <div><div class="muted" style="font-size:10px;">累计投入本金</div><div class="mono" style="font-size:16px;font-weight:700;">¥165,000</div></div>
+                <div><div class="muted" style="font-size:10px;">期末总资产</div><div class="mono up" style="font-size:16px;font-weight:700;">¥186,016</div></div>
+                <div><div class="muted" style="font-size:10px;">最大回撤</div><div class="mono" style="font-size:15px;font-weight:700;">24.94%</div></div>
+                <div><div class="muted" style="font-size:10px;">夏普比率</div><div class="mono navy" style="font-size:15px;font-weight:700;">2.42</div></div>
+              </div>
+              <div style="margin-top:14px;">
+                <div style="font-size:12px;font-weight:700;margin-bottom:6px;">三区间交易日分布（共 800 日）</div>
+                <div style="display:flex;height:18px;border:1px solid #1A1918;">
+                  <div style="width:20.4%;background:#1B7A56;"></div>
+                  <div style="width:54.4%;background:#1C355E;"></div>
+                  <div style="width:25.2%;background:#C63A2E;"></div>
+                </div>
+                <div class="mono muted" style="display:flex;justify-content:space-between;font-size:10px;margin-top:5px;">
+                  <span>低区 163日</span><span>中间区 435日</span><span>高区 202日</span>
+                </div>
+              </div>
+              <div style="margin-top:14px;padding:12px;background:#EDE5D8;border-left:3px solid #1C355E;font-size:12px;color:#5E5951;line-height:1.65;">
+                规则说明：中间区（0.16~0.28）暂停买入、资金存入现金池；突破边界次周一次性回补，共触发 6 次突破回补、171 条资金守恒审计流水。
+              </div>
+            </div>
+          `;
+        } else if (state.tab === '简报') {
+          inner = `
+            <div class="d2-mast">
+              <div class="serif" style="font-size:18px;font-weight:900;letter-spacing:0.04em;">周期罗盘 · 收市简报</div>
+              <div class="mono muted" style="font-size:10px;margin-top:2px;">2026年11月20日 · 置信度 88%</div>
+            </div>
+            <div class="d2-body">
+              <div class="navy" style="font-size:11px;font-weight:700;margin-bottom:6px;">双策略周度断言</div>
+              <h1 class="serif" style="font-size:20px;font-weight:900;line-height:1.36;">比值 0.1846 停在中间区，本周不动仓、¥1,000 存入现金池</h1>
+              <p class="muted" style="font-size:12px;line-height:1.62;margin-top:8px;">
+                国内十年期国债维持低位（1.58%），股债收益利差 2.81% 偏向权益；创业板50/红利低波100 处于 1500 日 24.3% 分位，维持现金池等待突破。
+              </p>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid #1A1918;border-bottom:1px solid #D8CFC0;padding:10px 0;margin-top:12px;">
+                <div><div class="muted" style="font-size:10px;">股债利差 ERP</div><div class="mono up" style="font-size:16px;font-weight:700;margin-top:2px;">2.81%</div></div>
+                <div style="border-left:1px solid #D8CFC0;padding-left:10px;"><div class="muted" style="font-size:10px;">距高 / 距低</div><div class="mono" style="font-size:12px;font-weight:700;margin-top:5px;">+51.7/-13.3%</div></div>
+                <div style="border-left:1px solid #D8CFC0;padding-left:10px;"><div class="muted" style="font-size:10px;">恐慌 VIX</div><div class="mono up" style="font-size:16px;font-weight:700;margin-top:2px;">35.90</div></div>
+              </div>
+              ${rulerHtml(true)}
+              <div style="display:flex;gap:10px;margin-top:6px;">
+                <button class="d2-btn-navy" data-go="账本" style="flex:1;">登记本周 ¥1,000 现金池</button>
+                <button class="d2-btn-line" data-go="盘面">看盘面</button>
+              </div>
+            </div>
+          `;
+        } else if (state.tab === '盘面') {
+          const rows = D2_ROWS[state.cat];
+          inner = `
+            <div class="d2-mast">
+              <div class="serif" style="font-size:18px;font-weight:900;letter-spacing:0.04em;">周期罗盘 · 盘面数据</div>
+              <div class="mono muted" style="font-size:10px;margin-top:2px;">按涨跌幅降序 · 零卡片纯表格</div>
+            </div>
+            <div class="d2-body">
+              <div class="d2-subtabs">
+                <div class="d2-subtab ${state.cat === 'macro' ? 'on' : ''}" data-cat="macro">全球宏观</div>
+                <div class="d2-subtab ${state.cat === 'ai' ? 'on' : ''}" data-cat="ai">AI 算力链</div>
+                <div class="d2-subtab ${state.cat === 'apac' ? 'on' : ''}" data-cat="apac">日韩与有色</div>
+              </div>
+              <div class="faint" style="display:flex;justify-content:space-between;font-size:10px;padding-bottom:6px;border-bottom:1px solid #1A1918;">
+                <span>标的 / 维度</span><span>现价 · 涨跌幅</span>
+              </div>
+              ${rows.map(r => `
+                <div class="d2-row">
+                  <div><div style="font-size:13px;font-weight:700;">${r.k}</div><div class="faint" style="font-size:11px;">${r.sub}</div></div>
+                  <div style="text-align:right;"><div class="mono" style="font-size:13px;font-weight:600;">${r.v}</div><div class="mono ${r.p >= 0 ? 'up' : 'down'}" style="font-size:12px;font-weight:700;">${r.p >= 0 ? '+' : ''}${r.p.toFixed(2)}%</div></div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        } else {
+          inner = `
+            <div class="d2-mast">
+              <div class="serif" style="font-size:18px;font-weight:900;letter-spacing:0.04em;">周期罗盘 · 模拟账本</div>
+              <div class="mono muted" style="font-size:10px;margin-top:2px;">资金守恒审计 · ACC_DEMO_001</div>
+            </div>
+            <div class="d2-body">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #1A1918;padding-bottom:12px;">
+                <div><div class="muted" style="font-size:11px;">账户总资产</div><div class="mono" style="font-size:26px;font-weight:700;">¥${(20650 + state.pool + state.cash).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div></div>
+                <div style="text-align:right;"><div class="muted" style="font-size:11px;">累计浮盈</div><div class="mono up" style="font-size:13px;font-weight:700;">+¥650.00 (+3.25%)</div></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 0;border-bottom:1px solid #D8CFC0;">
+                <div><div class="navy" style="font-size:11px;font-weight:600;">计划现金池（待回补）</div><div class="mono navy" style="font-size:18px;font-weight:700;margin-top:2px;">¥${state.pool.toLocaleString()}.00</div></div>
+                <div><div class="muted" style="font-size:11px;">可用流动现金</div><div class="mono" style="font-size:18px;font-weight:700;margin-top:2px;">¥${state.cash.toLocaleString()}.00</div></div>
+              </div>
+              <button class="d2-btn-navy" data-log="1" style="width:100%;margin-top:12px;background:${state.done ? '#1B7A56' : '#1C355E'};">
+                ${state.done ? '已登记本周 ¥1,000 现金池入账' : '本周定投打卡：¥1,000 转入现金池'}
+              </button>
+              <div class="serif" style="font-size:14px;font-weight:700;margin-top:16px;padding-bottom:6px;border-bottom:1px solid #1A1918;">持仓明细</div>
+              <div class="d2-row">
+                <div><div style="font-size:13px;font-weight:700;">红利低波100 (515100)</div><div class="mono faint" style="font-size:10px;margin-top:2px;">12,500份 · 成本 1.120 / 现价 1.188</div></div>
+                <div style="text-align:right;"><div class="mono" style="font-size:13px;font-weight:700;">¥14,847.50</div><div class="mono up" style="font-size:11px;font-weight:700;">+6.05%</div></div>
+              </div>
+              <div class="d2-row">
+                <div><div style="font-size:13px;font-weight:700;">创业板50 (159949)</div><div class="mono faint" style="font-size:10px;margin-top:2px;">8,000份 · 成本 0.750 / 现价 0.725</div></div>
+                <div style="text-align:right;"><div class="mono" style="font-size:13px;font-weight:700;">¥5,802.40</div><div class="mono down" style="font-size:11px;font-weight:700;">-3.29%</div></div>
+              </div>
+            </div>
+          `;
+        }
+
+        const sc = opts.scale;
+        el.innerHTML = `
+          <div style="width:${395 * sc}px;margin-bottom:8px;">
+            <div style="font-size:${opts.detail || sc < 0.7 ? 14 : 15}px;font-weight:700;">${opts.label}</div>
+            <div class="muted" style="font-size:12px;margin-top:2px;">${opts.note}</div>
+          </div>
+          <div style="width:${395 * sc}px;height:${832 * sc}px;">
+            <div style="transform:scale(${sc});transform-origin:0 0;width:395px;">
+              <div class="wf-wrap">
+                <div class="wf-screen" data-mp-page="${opts.page}" data-mp-title="周期罗盘" data-mp-nav="custom" data-mp-nav-text="black">
+                  <div class="wf-status">
+                    <span>15:05</span>
+                    <svg width="66" height="12" viewBox="0 0 66 12" fill="#1A1918">
+                      <rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="6" width="3" height="6" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/>
+                      <path d="M30 11.2a1.2 1.2 0 100-2.4 1.2 1.2 0 000 2.4zM25.6 6.4a6.4 6.4 0 018.8 0l-1.1 1.1a4.8 4.8 0 00-6.6 0zM23 3.8a10 10 0 0114 0l-1.1 1.1a8.4 8.4 0 00-11.8 0z"/>
+                      <rect x="41" y="0.75" width="22" height="10.5" rx="3" fill="none" stroke="#1A1918" stroke-opacity="0.45" stroke-width="1"/><rect x="43" y="2.75" width="16" height="6.5" rx="1.5"/><rect x="64" y="4" width="1.5" height="4" rx="0.75" fill-opacity="0.45"/>
+                    </svg>
+                  </div>
+                  <div class="wf-capsule">
+                    <div class="wf-cap-half"><svg width="20" height="6" viewBox="0 0 20 6"><circle cx="3" cy="3" r="2" fill="#1A1918"/><circle cx="10" cy="3" r="2.6" fill="#1A1918"/><circle cx="17" cy="3" r="2" fill="#1A1918"/></svg></div>
+                    <div class="wf-cap-sep"></div>
+                    <div class="wf-cap-half"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="#1A1918" stroke-width="1.6"/><circle cx="9" cy="9" r="2.6" fill="#1A1918"/></svg></div>
+                  </div>
+                  <div class="wf-scroll ${opts.detail ? 'no-tab' : ''}">${inner}</div>
+                  ${opts.detail ? '' : `
+                    <div class="wf-tabbar">
+                      ${['简报', '盘面', '账本'].map(t => `<div class="wf-tab ${state.tab === t ? 'active' : ''}" data-tab="${t}">${D2_ICONS[t]}<span>${t}</span></div>`).join('')}
+                    </div>
+                  `}
+                  <div class="wf-home-ind"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        el.querySelectorAll('[data-tab]').forEach(n => n.onclick = () => { state.tab = n.dataset.tab; render(); });
+        el.querySelectorAll('[data-go]').forEach(n => n.onclick = () => { state.tab = n.dataset.go; render(); });
+        el.querySelectorAll('[data-cat]').forEach(n => n.onclick = () => { state.cat = n.dataset.cat; render(); });
+        const logBtn = el.querySelector('[data-log]');
+        if (logBtn) logBtn.onclick = () => { if (!state.done) { state.pool += 1000; state.cash -= 1000; state.done = true; render(); } };
+      }
+      render();
+    }
+
+    mountD2Phone('slot-brief', { initial: '简报', scale: 0.94, page: 'pages/index/index', label: '首页 · 收市简报', note: '首屏先给断言结论，再给等比例标尺与四维评分' });
+    mountD2Phone('slot-board', { initial: '盘面', scale: 0.76, page: 'pages/markets/markets', label: '盘面细线表', note: '全球 / AI / 日韩有色，零卡片纯表格' });
+    mountD2Phone('slot-ledger', { initial: '账本', scale: 0.76, page: 'pages/portfolio/portfolio', label: '模拟实盘账本', note: '可点击登记本周 ¥1,000 现金池入账' });
+    mountD2Phone('slot-backtest', { initial: '', detail: true, scale: 0.76, page: 'pages/backtest/backtest', label: '800 日回测战报（二级页）', note: '无底部 tabBar，展示三区间分布' });
+  </script>
+</body>
+</html>

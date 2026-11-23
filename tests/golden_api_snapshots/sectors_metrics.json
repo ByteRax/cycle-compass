@@ -1,0 +1,510 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "sector_id": "ai_compute",
+      "name": "AI算力",
+      "icon": "🧠",
+      "stage": "繁荣期",
+      "prosperity_score": 95.0,
+      "price_index": 102.58,
+      "price_change_pct": 2.58,
+      "unit": "点",
+      "catalyst": "前沿大模型持续迭代，算力集群高利用率",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "ai_compute",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502208"
+      }
+    },
+    {
+      "sector_id": "cpo",
+      "name": "CPO",
+      "icon": "💡",
+      "stage": "繁荣期",
+      "prosperity_score": 92.5,
+      "price_index": 102.17,
+      "price_change_pct": 2.17,
+      "unit": "点",
+      "catalyst": "1.6T光模块与硅光渗透加速交付",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "cpo",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502241"
+      }
+    },
+    {
+      "sector_id": "semiconductor",
+      "name": "半导体",
+      "icon": "🔬",
+      "stage": "复苏上行",
+      "prosperity_score": 88.0,
+      "price_index": 102.85,
+      "price_change_pct": 2.85,
+      "unit": "点",
+      "catalyst": "先进制程与汽车芯片需求拉动",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "semiconductor",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502250"
+      }
+    },
+    {
+      "sector_id": "storage",
+      "name": "存储",
+      "icon": "💾",
+      "stage": "景气高位",
+      "prosperity_score": 90.0,
+      "price_index": 103.73,
+      "price_change_pct": 3.73,
+      "unit": "点",
+      "catalyst": "HBM与大容量DRAM/NAND价格坚挺",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "storage",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502259"
+      }
+    },
+    {
+      "sector_id": "datacenter",
+      "name": "数据中心",
+      "icon": "🗄️",
+      "stage": "稳步扩张",
+      "prosperity_score": 84.0,
+      "price_index": 101.21,
+      "price_change_pct": 1.21,
+      "unit": "点",
+      "catalyst": "智算中心IDC规模化交付上架",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "datacenter",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502268"
+      }
+    },
+    {
+      "sector_id": "cloud",
+      "name": "云计算",
+      "icon": "☁️",
+      "stage": "成熟增长",
+      "prosperity_score": 80.0,
+      "price_index": 100.71,
+      "price_change_pct": 0.71,
+      "unit": "点",
+      "catalyst": "企业AI工作负载云化转型",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "cloud",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502276"
+      }
+    },
+    {
+      "sector_id": "commercial_aerospace",
+      "name": "商业航天",
+      "icon": "🚀",
+      "stage": "早期爆发",
+      "prosperity_score": 78.0,
+      "price_index": 101.3,
+      "price_change_pct": 1.3,
+      "unit": "点",
+      "catalyst": "商业火箭发射密集，商业化在即",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "commercial_aerospace",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502284"
+      }
+    },
+    {
+      "sector_id": "satellite",
+      "name": "卫星",
+      "icon": "🛰️",
+      "stage": "早期爆发",
+      "prosperity_score": 77.0,
+      "price_index": 101.37,
+      "price_change_pct": 1.37,
+      "unit": "点",
+      "catalyst": "低轨互联网星座批量组网",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "satellite",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502293"
+      }
+    },
+    {
+      "sector_id": "robotics",
+      "name": "机器人",
+      "icon": "🤖",
+      "stage": "技术突破",
+      "prosperity_score": 82.0,
+      "price_index": 101.56,
+      "price_change_pct": 1.56,
+      "unit": "点",
+      "catalyst": "具身智能本体与轻量关节迭代",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "robotics",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502301"
+      }
+    },
+    {
+      "sector_id": "autonomous_driving",
+      "name": "自动驾驶",
+      "icon": "🚗",
+      "stage": "规模试点",
+      "prosperity_score": 85.0,
+      "price_index": 102.39,
+      "price_change_pct": 2.39,
+      "unit": "点",
+      "catalyst": "端到端智驾与Robotaxi商业化",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "autonomous_driving",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502309"
+      }
+    },
+    {
+      "sector_id": "nuclear_power",
+      "name": "核电",
+      "icon": "⚛️",
+      "stage": "稳健扩张",
+      "prosperity_score": 76.0,
+      "price_index": 100.58,
+      "price_change_pct": 0.58,
+      "unit": "点",
+      "catalyst": "清洁基荷能源与三代四代核电开工",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "nuclear_power",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502316"
+      }
+    },
+    {
+      "sector_id": "power_grid",
+      "name": "电网",
+      "icon": "⚡",
+      "stage": "建设高峰",
+      "prosperity_score": 79.0,
+      "price_index": 100.35,
+      "price_change_pct": 0.35,
+      "unit": "点",
+      "catalyst": "特高压外送通道与配电网智能化改造",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "power_grid",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502324"
+      }
+    },
+    {
+      "sector_id": "military",
+      "name": "军工",
+      "icon": "🛡️",
+      "stage": "周期底部",
+      "prosperity_score": 72.0,
+      "price_index": 100.56,
+      "price_change_pct": 0.56,
+      "unit": "点",
+      "catalyst": "新型号列装与订单复苏预期",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "military",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502331"
+      }
+    },
+    {
+      "sector_id": "new_energy",
+      "name": "新能源",
+      "icon": "🔋",
+      "stage": "出清修复",
+      "prosperity_score": 68.0,
+      "price_index": 100.86,
+      "price_change_pct": 0.86,
+      "unit": "点",
+      "catalyst": "风光储一体化海外需求稳健",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "new_energy",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502342"
+      }
+    },
+    {
+      "sector_id": "solar",
+      "name": "光伏",
+      "icon": "☀️",
+      "stage": "供给见底",
+      "prosperity_score": 71.0,
+      "price_index": 102.47,
+      "price_change_pct": 2.47,
+      "unit": "点",
+      "catalyst": "产业链价格企稳与落后产能加速出清",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "solar",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502354"
+      }
+    },
+    {
+      "sector_id": "lithium_battery",
+      "name": "锂电池",
+      "icon": "🔌",
+      "stage": "逐步筑底",
+      "prosperity_score": 73.0,
+      "price_index": 101.81,
+      "price_change_pct": 1.81,
+      "unit": "点",
+      "catalyst": "储能出货爆发与碳酸锂库存去化",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "lithium_battery",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502367"
+      }
+    },
+    {
+      "sector_id": "petroleum",
+      "name": "石油",
+      "icon": "🛢️",
+      "stage": "高位震荡",
+      "prosperity_score": 75.0,
+      "price_index": 101.43,
+      "price_change_pct": 1.43,
+      "unit": "点",
+      "catalyst": "OPEC+受控减产与地缘溢价支持",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "petroleum",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502376"
+      }
+    },
+    {
+      "sector_id": "natural_gas",
+      "name": "天然气",
+      "icon": "🔥",
+      "stage": "震荡下行",
+      "prosperity_score": 65.0,
+      "price_index": 98.92,
+      "price_change_pct": -1.08,
+      "unit": "点",
+      "catalyst": "库存相对充裕与季节性淡季",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "natural_gas",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502384"
+      }
+    },
+    {
+      "sector_id": "copper_metal",
+      "name": "铜 / 有色",
+      "icon": "🟠",
+      "stage": "高位景气",
+      "prosperity_score": 83.0,
+      "price_index": 100.61,
+      "price_change_pct": 0.61,
+      "unit": "点",
+      "catalyst": "电网改造与AI能耗高用铜驱动",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "copper_metal",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502392"
+      }
+    },
+    {
+      "sector_id": "gold",
+      "name": "黄金",
+      "icon": "🥇",
+      "stage": "避险繁荣",
+      "prosperity_score": 89.0,
+      "price_index": 100.43,
+      "price_change_pct": 0.43,
+      "unit": "点",
+      "catalyst": "央行持续购金与全球去美元化叙事",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "gold",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502400"
+      }
+    },
+    {
+      "sector_id": "banking",
+      "name": "银行金融",
+      "icon": "🏦",
+      "stage": "防守稳定",
+      "prosperity_score": 69.0,
+      "price_index": 100.11,
+      "price_change_pct": 0.11,
+      "unit": "点",
+      "catalyst": "高股息资产防御与资产质量稳健",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "banking",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502407"
+      }
+    },
+    {
+      "sector_id": "biomedicine",
+      "name": "生物医药",
+      "icon": "💊",
+      "stage": "估值消化",
+      "prosperity_score": 67.0,
+      "price_index": 99.91,
+      "price_change_pct": -0.09,
+      "unit": "点",
+      "catalyst": "创新药出海提速但短期震荡",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "biomedicine",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502422"
+      }
+    },
+    {
+      "sector_id": "consumption",
+      "name": "消费",
+      "icon": "🛒",
+      "stage": "弱复苏",
+      "prosperity_score": 64.0,
+      "price_index": 100.26,
+      "price_change_pct": 0.26,
+      "unit": "点",
+      "catalyst": "以旧换新政策驱动与性价比消费",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "consumption",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502430"
+      }
+    },
+    {
+      "sector_id": "rare_earth",
+      "name": "稀土",
+      "icon": "🧲",
+      "stage": "底部企稳",
+      "prosperity_score": 74.0,
+      "price_index": 101.37,
+      "price_change_pct": 1.37,
+      "unit": "点",
+      "catalyst": "出口配额调控与人形机器人磁材需求",
+      "as_of": "2026-11-20",
+      "meta": {
+        "source_name": "Global Industry Tracking / 离线快照",
+        "symbol": "rare_earth",
+        "as_of": "2026-11-20",
+        "status": "offline_seed",
+        "latency_ms": null,
+        "warning": null,
+        "updated_at": "2026-11-22T20:02:58.502437"
+      }
+    }
+  ]
+}

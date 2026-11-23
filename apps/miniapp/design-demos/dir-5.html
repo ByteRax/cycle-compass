@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>备选五 · 周一纪律清单（CycleCompass 微信小程序）</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #F1F2F6; color: #1D1D1F;
+      font-family: -apple-system, "PingFang SC", "SF Pro Text", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .mono { font-family: "SF Mono", "Menlo", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+
+    .board {
+      position: relative; width: 1440px; height: 2220px; margin: 0 auto;
+      background: #F4F5F8; overflow: hidden;
+    }
+    .wf-wrap {
+      display: inline-block; padding: 10px; background: #1D1D1F; border-radius: 54px;
+      box-shadow: 0 0 0 1.5px #3A3A3D, 0 24px 60px rgba(29,29,31,0.16);
+    }
+    .wf-screen {
+      position: relative; width: 375px; height: 812px; border-radius: 44px; overflow: hidden;
+      background: #FFFFFF; color: #1D1D1F;
+    }
+    .wf-status {
+      position: absolute; top: 0; left: 0; right: 0; height: 44px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 26px 0 30px; font-size: 15px; font-weight: 600; z-index: 40; pointer-events: none;
+    }
+    .wf-capsule {
+      position: absolute; top: 48px; right: 7px; width: 87px; height: 32px;
+      border-radius: 16px; display: flex; align-items: center; z-index: 50; pointer-events: none;
+      background: rgba(255,255,255,0.85); border: 0.5px solid rgba(29,29,31,0.12);
+    }
+    .wf-cap-half { flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .wf-cap-sep { width: 0.5px; height: 18px; background: rgba(29,29,31,0.12); }
+    .wf-scroll { position: absolute; top: 0; left: 0; right: 0; bottom: 83px; overflow-y: auto; }
+    .wf-tabbar {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 83px; padding-bottom: 34px;
+      background: #FFFFFF; border-top: 0.5px solid #E5E7EB; display: flex; z-index: 30;
+    }
+    .wf-tab {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; font-size: 10px; color: #8A8F9B; cursor: pointer; user-select: none;
+    }
+    .wf-tab.active { color: #2557D6; font-weight: 700; }
+    .wf-home-ind {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px; border-radius: 999px; background: rgba(29,29,31,0.82); z-index: 60;
+    }
+
+    .up { color: #D9383A; }
+    .down { color: #128A5E; }
+    .blue { color: #2557D6; }
+    .muted { color: #7C828E; }
+
+    /* Things 3 crisp checklist rows & floating expanded card */
+    .t3-item {
+      display: flex; align-items: flex-start; gap: 12px; padding: 13px 0;
+      position: relative; cursor: pointer;
+    }
+    .t3-item::after {
+      content: ""; position: absolute; left: 32px; right: 0; bottom: 0; height: 1px; background: #ECEEF2;
+    }
+    .t3-box {
+      width: 20px; height: 20px; border-radius: 6px; border: 1.8px solid #C5CAD3;
+      flex-shrink: 0; margin-top: 1px; display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .t3-box.done { background: #2557D6; border-color: #2557D6; }
+    .t3-float-card {
+      background: #FFFFFF; border-radius: 14px; padding: 16px; margin: 10px -4px;
+      border: 1px solid #E5E8EF;
+      box-shadow: 0 2px 6px rgba(29,29,31,0.05), 0 18px 42px rgba(29,29,31,0.11);
+    }
+    .share-card {
+      width: 244px; background: #FFFFFF; border-radius: 8px; padding: 10px 8px 0;
+      box-shadow: 0 4px 16px rgba(29,29,31,0.10); border: 1px solid #E5E7EB;
+    }
+  </style>
+</head>
+<body>
+  <div class="board" data-showboard="closeup">
+    <!-- Left Header -->
+    <div style="position:absolute;left:56px;top:48px;width:375px;">
+      <div class="mono blue" style="font-size:12px;font-weight:700;margin-bottom:8px;">备选五 · 周一纪律清单（Things 3 原生精修）</div>
+      <div style="font-size:44px;font-weight:800;line-height:1.1;letter-spacing:-0.03em;">周期罗盘</div>
+      <div style="font-size:14px;line-height:1.68;color:#6E7480;margin-top:12px;">
+        跨类目借用 Things 3「像一张干净挺括的纸」的极简纪律感：把复杂的量化策略收敛为 4 条可勾选的「周一纪律清单」，点击条目展开浮起卡片，勾选即记账。
+      </div>
+    </div>
+
+    <!-- Left Main Phone -->
+    <div id="slot-today" style="position:absolute;left:56px;top:276px;"></div>
+
+    <!-- Center Top: Share Card -->
+    <div style="position:absolute;left:476px;top:48px;width:548px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;">微信群 5:4 纪律清单转发卡</div>
+      <div style="background:#E9ECF2;padding:18px;border-radius:14px;display:flex;gap:18px;align-items:center;">
+        <div class="share-card" style="flex-shrink:0;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#6E7480;margin-bottom:6px;">
+            <div style="width:16px;height:16px;border-radius:5px;background:#2557D6;color:#FFF;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;">✓</div>
+            <span>周期罗盘</span>
+          </div>
+          <div style="font-size:14px;font-weight:500;color:#1D1D1F;line-height:1.4;margin-bottom:8px;">周一纪律清单：比值 0.1846 · 本周存 ¥1,000 进池</div>
+          <div data-mp-share="" style="width:228px;height:182px;background:#FFFFFF;border:1px solid #ECEEF2;border-radius:6px;padding:14px;display:flex;flex-direction:column;justify-content:space-between;">
+            <div style="font-size:15px;font-weight:800;color:#1D1D1F;">本周定投清单 · 11/20</div>
+            <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="width:14px;height:14px;border-radius:4px;background:#2557D6;color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center;">✓</span><span style="color:#8A8F9B;text-decoration:line-through;">比值 0.1846（中间区）</span></div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="width:14px;height:14px;border-radius:4px;background:#2557D6;color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center;">✓</span><span style="color:#8A8F9B;text-decoration:line-through;">红利四维 6.57 分</span></div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="width:14px;height:14px;border-radius:4px;border:1.5px solid #2557D6;"></span><span style="font-weight:700;color:#1D1D1F;">转入 ¥1,000 至现金池</span></div>
+            </div>
+            <div class="mono muted" style="font-size:10px;">VIX 35.90 · 800日 XIRR 7.39%</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#8A8F9B;border-top:0.5px solid #ECEEF2;margin-top:8px;padding:6px 0;">
+            <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="#7d7df0" stroke-width="1.4"/><circle cx="6" cy="6" r="1.8" fill="#7d7df0"/></svg>
+            <span>小程序</span>
+          </div>
+        </div>
+        <div style="font-size:12px;color:#5D636F;line-height:1.75;">
+          <strong style="color:#1D1D1F;display:block;margin-bottom:4px;">极简耐看 · 久用不累</strong>
+          去掉所有重型仪表盘与色块噪音，每周一打开就像打勾完成 3 件小事，把「反人性定投纪律」变成轻松的日常习惯。
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Main: Closeup of Expanded Floating Task Card -->
+    <div style="position:absolute;left:476px;top:376px;width:548px;">
+      <div style="margin-bottom:10px;">
+        <div style="font-size:15px;font-weight:700;">局部特写 · 展开的「周一纪律浮起卡片」</div>
+        <div style="font-size:13px;color:#6E7480;margin-top:2px;">平时收起为一行极简清单，点开才浮起展示参数、区间与一键入账</div>
+      </div>
+      <div class="t3-float-card" style="padding:24px;margin:0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:22px;height:22px;border-radius:6px;border:2px solid #2557D6;"></div>
+            <div style="font-size:17px;font-weight:700;">本周定投：¥1,000 存入计划现金池</div>
+          </div>
+          <span class="mono blue" style="font-size:12px;font-weight:700;background:#EDF2FF;padding:3px 9px;border-radius:6px;">中间区</span>
+        </div>
+        <div style="padding-left:34px;margin-top:12px;">
+          <div style="font-size:13px;color:#5D636F;line-height:1.65;">
+            当前创业板50 ÷ 红利低波100 比值为 <strong class="mono" style="color:#1D1D1F;">0.1846</strong>（1500 日分位 24.3%），落在 0.16~0.28 中间区；红利四维评分 6.57/20。暂停新增指数买入，资金进入现金池待突破回补。
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:14px;padding:12px;background:#F7F8FA;border-radius:10px;">
+            <div><div class="muted" style="font-size:11px;">距高区线</div><div class="mono up" style="font-size:15px;font-weight:700;">+51.7%</div></div>
+            <div><div class="muted" style="font-size:11px;">距低区线</div><div class="mono down" style="font-size:15px;font-weight:700;">-13.3%</div></div>
+            <div><div class="muted" style="font-size:11px;">当前现金池</div><div class="mono blue" style="font-size:15px;font-weight:700;">¥1,000</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;background:#FFFFFF;border:1px solid #E5E8EF;border-radius:14px;padding:18px 20px;">
+        <div class="mono blue" style="font-size:11px;font-weight:700;margin-bottom:8px;">色彩推导 · 极净投资日志</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <div style="flex:1;height:24px;border-radius:5px;background:#FFFFFF;border:1px solid #D8DCE3;"></div>
+          <div style="flex:1;height:24px;border-radius:5px;background:#1D1D1F;"></div>
+          <div style="flex:1;height:24px;border-radius:5px;background:#2557D6;"></div>
+          <div style="flex:1;height:24px;border-radius:5px;background:#D9383A;"></div>
+          <div style="flex:1;height:24px;border-radius:5px;background:#128A5E;"></div>
+        </div>
+        <div style="font-size:12px;color:#5D636F;line-height:1.7;">
+          <strong style="color:#1D1D1F;">form 来自内容的哪里：</strong>指数轮动定投最难的不是算公式，而是每周一坚持执行纪律；做成清单流，降低心理摩擦。
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Stacked Column (300px+ legible width) -->
+    <div id="slot-markets" style="position:absolute;left:1084px;top:48px;"></div>
+    <div id="slot-ledger" style="position:absolute;left:1084px;top:768px;"></div>
+    <div id="slot-bt" style="position:absolute;left:1084px;top:1488px;"></div>
+  </div>
+
+  <script>
+    const D5_ICONS = {
+      '今天': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+      '盘面': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 18l5-6 4 3 7-9"/></svg>',
+      '账本': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="14" x2="13" y2="14"/></svg>',
+    };
+
+    function mountD5Phone(containerId, opts) {
+      const state = {
+        tab: opts.initial,
+        checked: { t1: true, t2: true, t3: false, t4: false },
+        expanded: 't3',
+        pool: 1000,
+        cash: 5200,
+      };
+      const el = document.getElementById(containerId);
+
+      function render() {
+        let html = '';
+        if (opts.btOnly) {
+          html = `
+            <div style="padding:52px 20px 24px;">
+              <div style="padding-right:84px;margin-bottom:18px;">
+                <div style="font-size:26px;font-weight:800;letter-spacing:-0.03em;">回测复盘</div>
+                <div class="mono muted" style="font-size:11px;margin-top:3px;">800 交易日 · 2023-08 ~ 2026-11</div>
+              </div>
+              <div class="t3-float-card" style="margin:0 0 16px;">
+                <div class="muted" style="font-size:12px;">年化收益率 XIRR</div>
+                <div class="mono blue" style="font-size:38px;font-weight:800;line-height:1.1;margin-top:2px;">7.39%</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid #ECEEF2;">
+                  <div><div class="muted" style="font-size:11px;">累计投入</div><div class="mono" style="font-size:15px;font-weight:700;">¥165,000</div></div>
+                  <div><div class="muted" style="font-size:11px;">期末资产</div><div class="mono up" style="font-size:15px;font-weight:700;">¥186,016</div></div>
+                  <div><div class="muted" style="font-size:11px;">最大回撤</div><div class="mono" style="font-size:14px;font-weight:700;">24.94%</div></div>
+                  <div><div class="muted" style="font-size:11px;">夏普比率</div><div class="mono" style="font-size:14px;font-weight:700;">2.42</div></div>
+                </div>
+              </div>
+              <div style="font-size:12px;font-weight:700;color:#2557D6;padding-bottom:6px;border-bottom:1.5px solid #2557D6;">三区间分布记录</div>
+              ${[
+                { k: '低区买入创业板50', v: '163 交易日' },
+                { k: '中间区暂存现金池', v: '435 交易日' },
+                { k: '高区买入红利低波100', v: '202 交易日' },
+                { k: '现金池突破一次性回补', v: '共触发 6 次' },
+              ].map(r => `
+                <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #ECEEF2;font-size:13px;">
+                  <span>${r.k}</span><span class="mono muted" style="font-weight:600;">${r.v}</span>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        } else if (state.tab === '今天') {
+          const items = [
+            { id: 't1', title: '核对创业板50 ÷ 红利低波100 比值', meta: '0.1846 · 中间区（24.3% 分位）', detail: '距高区线 +51.7%，距低区线 -13.3%，无突破信号。' },
+            { id: 't2', title: '确认红利低波100 四维打分', meta: '6.57 / 20 · 门控通行', detail: '股息利差 70.2 分具性价比，估值分位 9.2 分偏高，老仓不动。' },
+            { id: 't3', title: '本周定投 ¥1,000 转入计划现金池', meta: '核心动作 · 勾选即同步账本', detail: '当前现金池 ¥' + state.pool.toLocaleString() + '，可用现金 ¥' + state.cash.toLocaleString() + '。勾选此项立即记入资金守恒流水。' },
+            { id: 't4', title: '盘后速览 VIX 波动与 AI 景气', meta: 'VIX 35.90 (+26.3%) · 存储 +3.73%', detail: '海外恐慌指数急升，日经/KOSPI 回撤超 5%，国内高股息防守有效。' },
+          ];
+          html = `
+            <div style="padding:52px 20px 24px;">
+              <div style="padding-right:84px;margin-bottom:16px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span style="color:#F5B731;font-size:22px;">★</span>
+                  <span style="font-size:28px;font-weight:800;letter-spacing:-0.03em;">今天</span>
+                </div>
+                <div class="mono muted" style="font-size:11px;margin-top:2px;">2026-11-20 · 周一投资纪律清单</div>
+              </div>
+
+              <div style="font-size:12px;font-weight:700;color:#2557D6;padding-bottom:6px;border-bottom:1.5px solid #2557D6;">核心纪律</div>
+              ${items.map(it => {
+                const isDone = state.checked[it.id];
+                const isExp = state.expanded === it.id;
+                if (isExp) {
+                  return `
+                    <div class="t3-float-card">
+                      <div style="display:flex;align-items:flex-start;gap:12px;">
+                        <div class="t3-box ${isDone ? 'done' : ''}" data-chk="${it.id}">
+                          ${isDone ? '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>' : ''}
+                        </div>
+                        <div style="flex:1;" data-exp="${it.id}">
+                          <div style="font-size:14px;font-weight:700;${isDone ? 'color:#8A8F9B;text-decoration:line-through;' : ''}">${it.title}</div>
+                          <div class="muted" style="font-size:12px;line-height:1.6;margin-top:6px;">${it.detail}</div>
+                          <div class="mono blue" style="font-size:11px;font-weight:600;margin-top:8px;">${it.meta}</div>
+                        </div>
+                      </div>
+                    </div>
+                  `;
+                }
+                return `
+                  <div class="t3-item">
+                    <div class="t3-box ${isDone ? 'done' : ''}" data-chk="${it.id}">
+                      ${isDone ? '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>' : ''}
+                    </div>
+                    <div style="flex:1;" data-exp="${it.id}">
+                      <div style="font-size:14px;font-weight:500;${isDone ? 'color:#8A8F9B;text-decoration:line-through;' : ''}">${it.title}</div>
+                      <div class="mono muted" style="font-size:11px;margin-top:2px;">${it.meta}</div>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+
+              <div style="margin-top:18px;font-size:12px;font-weight:700;color:#7C828E;padding-bottom:6px;border-bottom:1px solid #ECEEF2;">宏观备注</div>
+              <div style="font-size:12px;color:#5D636F;line-height:1.65;margin-top:8px;">
+                弱复苏与海外结构性繁荣分化（置信度 88%，股债利差 2.81%）。红利防守为主，低区伺机成长。
+              </div>
+            </div>
+          `;
+        } else if (state.tab === '盘面') {
+          html = `
+            <div style="padding:52px 20px 24px;">
+              <div style="padding-right:84px;margin-bottom:16px;">
+                <div style="font-size:26px;font-weight:800;letter-spacing:-0.03em;">盘面速览</div>
+                <div class="mono muted" style="font-size:11px;margin-top:2px;">缩进发丝线 · 零卡片干扰</div>
+              </div>
+              <div style="font-size:12px;font-weight:700;color:#2557D6;padding-bottom:6px;border-bottom:1.5px solid #2557D6;">全球宏观</div>
+              ${[
+                { n: '恐慌指数 VIX', v: '35.90', p: '+26.28%', up: true },
+                { n: '布伦特原油', v: '92.63', p: '+0.70%', up: true },
+                { n: '美元指数', v: '103.84', p: '+0.25%', up: true },
+                { n: '黄金盎司', v: '3534.64', p: '-2.49%', up: false },
+                { n: 'LME 铜', v: '554.86', p: '-3.04%', up: false },
+              ].map(m => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid #ECEEF2;">
+                  <span style="font-size:14px;font-weight:500;">${m.n}</span>
+                  <div><span class="mono" style="font-size:14px;font-weight:600;margin-right:10px;">${m.v}</span><span class="mono ${m.up ? 'up' : 'down'}" style="font-size:12px;font-weight:700;">${m.p}</span></div>
+                </div>
+              `).join('')}
+
+              <div style="font-size:12px;font-weight:700;color:#7C828E;padding-bottom:6px;border-bottom:1px solid #ECEEF2;margin-top:18px;">重点产业与 AI 价格</div>
+              ${[
+                { n: '韩国存储', p: '+4.57%', up: true },
+                { n: 'AI Token / 存储芯片', p: '+3.73%', up: true },
+                { n: 'AI 算力', p: '+2.58%', up: true },
+                { n: '日经 225', p: '-5.06%', up: false },
+                { n: '白银 / 锑', p: '-6.60%', up: false },
+              ].map(s => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #ECEEF2;">
+                  <span style="font-size:13px;">${s.n}</span>
+                  <span class="mono ${s.up ? 'up' : 'down'}" style="font-size:12px;font-weight:700;">${s.p}</span>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        } else {
+          html = `
+            <div style="padding:52px 20px 24px;">
+              <div style="padding-right:84px;margin-bottom:16px;">
+                <div style="font-size:26px;font-weight:800;letter-spacing:-0.03em;">模拟账本</div>
+                <div class="mono muted" style="font-size:11px;margin-top:2px;">资金守恒双记账</div>
+              </div>
+              <div class="t3-float-card" style="margin:0 0 18px;">
+                <div class="muted" style="font-size:12px;">总资产估值</div>
+                <div class="mono" style="font-size:30px;font-weight:800;margin-top:2px;">¥${(20650 + state.pool + state.cash).toLocaleString()}</div>
+                <div class="mono up" style="font-size:12px;font-weight:700;margin-top:2px;">累计浮盈 +¥650.00 (+3.25%)</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #ECEEF2;">
+                  <div><div class="blue" style="font-size:11px;font-weight:600;">计划现金池</div><div class="mono blue" style="font-size:16px;font-weight:700;">¥${state.pool.toLocaleString()}</div></div>
+                  <div><div class="muted" style="font-size:11px;">可用现金</div><div class="mono" style="font-size:16px;font-weight:700;">¥${state.cash.toLocaleString()}</div></div>
+                </div>
+              </div>
+              <div style="font-size:12px;font-weight:700;color:#2557D6;padding-bottom:6px;border-bottom:1.5px solid #2557D6;">双指数持仓</div>
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #ECEEF2;">
+                <div><div style="font-size:14px;font-weight:600;">红利低波100 (515100)</div><div class="mono muted" style="font-size:11px;">12,500份 · 成本 1.120</div></div>
+                <div style="text-align:right;"><div class="mono" style="font-size:14px;font-weight:700;">¥14,847.5</div><div class="mono up" style="font-size:12px;font-weight:700;">+6.05%</div></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #ECEEF2;">
+                <div><div style="font-size:14px;font-weight:600;">创业板50 (159949)</div><div class="mono muted" style="font-size:11px;">8,000份 · 成本 0.750</div></div>
+                <div style="text-align:right;"><div class="mono" style="font-size:14px;font-weight:700;">¥5,802.4</div><div class="mono down" style="font-size:12px;font-weight:700;">-3.29%</div></div>
+              </div>
+            </div>
+          `;
+        }
+
+        const sc = opts.scale;
+        el.innerHTML = `
+          <div style="width:${395 * sc}px;margin-bottom:8px;">
+            <div style="font-size:15px;font-weight:700;">${opts.label}</div>
+            <div class="muted" style="font-size:12px;margin-top:2px;">${opts.note}</div>
+          </div>
+          <div style="width:${395 * sc}px;height:${832 * sc}px;">
+            <div style="transform:scale(${sc});transform-origin:0 0;width:395px;">
+              <div class="wf-wrap">
+                <div class="wf-screen" data-mp-page="${opts.page}">
+                  <div class="wf-status">
+                    <span>09:05</span>
+                    <svg width="66" height="12" viewBox="0 0 66 12" fill="#1D1D1F">
+                      <rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="6" width="3" height="6" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/>
+                      <path d="M30 11.2a1.2 1.2 0 100-2.4 1.2 1.2 0 000 2.4zM25.6 6.4a6.4 6.4 0 018.8 0l-1.1 1.1a4.8 4.8 0 00-6.6 0zM23 3.8a10 10 0 0114 0l-1.1 1.1a8.4 8.4 0 00-11.8 0z"/>
+                      <rect x="41" y="0.75" width="22" height="10.5" rx="3" fill="none" stroke="#1D1D1F" stroke-opacity="0.45" stroke-width="1"/><rect x="43" y="2.75" width="16" height="6.5" rx="1.5"/><rect x="64" y="4" width="1.5" height="4" rx="0.75" fill-opacity="0.45"/>
+                    </svg>
+                  </div>
+                  <div class="wf-capsule">
+                    <div class="wf-cap-half"><svg width="20" height="6" viewBox="0 0 20 6"><circle cx="3" cy="3" r="2" fill="#1D1D1F"/><circle cx="10" cy="3" r="2.6" fill="#1D1D1F"/><circle cx="17" cy="3" r="2" fill="#1D1D1F"/></svg></div>
+                    <div class="wf-cap-sep"></div>
+                    <div class="wf-cap-half"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="#1D1D1F" stroke-width="1.6"/><circle cx="9" cy="9" r="2.6" fill="#1D1D1F"/></svg></div>
+                  </div>
+                  <div class="wf-scroll" style="${opts.btOnly ? 'bottom:0;' : ''}">${html}</div>
+                  ${opts.btOnly ? '' : `
+                    <div class="wf-tabbar">
+                      ${['今天', '盘面', '账本'].map(t => `<div class="wf-tab ${state.tab === t ? 'active' : ''}" data-tab="${t}">${D5_ICONS[t]}<span>${t}</span></div>`).join('')}
+                    </div>
+                  `}
+                  <div class="wf-home-ind"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        el.querySelectorAll('[data-tab]').forEach(n => n.onclick = () => { state.tab = n.dataset.tab; render(); });
+        el.querySelectorAll('[data-exp]').forEach(n => n.onclick = () => { state.expanded = state.expanded === n.dataset.exp ? null : n.dataset.exp; render(); });
+        el.querySelectorAll('[data-chk]').forEach(n => n.onclick = (e) => {
+          e.stopPropagation();
+          const id = n.dataset.chk;
+          const next = !state.checked[id];
+          state.checked[id] = next;
+          if (id === 't3') {
+            if (next) { state.pool += 1000; state.cash -= 1000; }
+            else { state.pool -= 1000; state.cash += 1000; }
+          }
+          render();
+        });
+      }
+      render();
+    }
+
+    mountD5Phone('slot-today', { initial: '今天', scale: 0.94, page: 'pages/index/index', label: '首页 · 周一纪律清单', note: '点击条目展开卡片，勾选第 3 条实时记账' });
+    mountD5Phone('slot-markets', { initial: '盘面', scale: 0.76, page: 'pages/markets/markets', label: '盘面速览', note: '纯白纸面 + 缩进发丝线，极低视觉负担' });
+    mountD5Phone('slot-ledger', { initial: '账本', scale: 0.76, page: 'pages/portfolio/portfolio', label: '模拟实盘账本', note: '浮起资产卡 + 极简持仓明细' });
+    mountD5Phone('slot-bt', { initial: '', btOnly: true, scale: 0.76, page: 'pages/backtest/backtest', label: '800 日回测复盘（二级页）', note: '清晰列表呈现三区间天数与 6 次回补' });
+  </script>
+</body>
+</html>

@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>方向一 · 精密航海罗盘（CycleCompass 微信小程序）</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #07090B; color: #F1EFEA;
+      font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .mono { font-family: "SF Mono", "Menlo", "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+
+    /* Showboard canvas */
+    .board {
+      position: relative; width: 1440px; height: 1620px; margin: 0 auto;
+      background: radial-gradient(circle at 22% 26%, #161E24 0%, #090C0F 64%);
+      overflow: hidden;
+    }
+    .board-grid-bg {
+      position: absolute; inset: 0; pointer-events: none; opacity: 0.25;
+      background-image: linear-gradient(rgba(212,163,89,0.06) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(212,163,89,0.06) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+
+    /* WechatFrame */
+    .wf-wrap {
+      display: inline-block; padding: 10px; background: #14181C; border-radius: 54px;
+      box-shadow: 0 0 0 1.5px #2B333A, 0 28px 70px rgba(0,0,0,0.68);
+    }
+    .wf-screen {
+      position: relative; width: 375px; height: 812px; border-radius: 44px; overflow: hidden;
+      background: #0D1114; color: #F1EFEA;
+    }
+    .wf-status {
+      position: absolute; top: 0; left: 0; right: 0; height: 44px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 26px 0 30px; font-size: 15px; font-weight: 600; z-index: 40; pointer-events: none;
+    }
+    .wf-capsule {
+      position: absolute; top: 48px; right: 7px; width: 87px; height: 32px;
+      border-radius: 16px; display: flex; align-items: center; z-index: 50; pointer-events: none;
+      background: rgba(255,255,255,0.12); border: 0.5px solid rgba(255,255,255,0.22);
+    }
+    .wf-cap-half { flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .wf-cap-sep { width: 0.5px; height: 18px; background: rgba(255,255,255,0.22); }
+    .wf-scroll { position: absolute; top: 0; left: 0; right: 0; bottom: 83px; overflow-y: auto; }
+    .wf-tabbar {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 83px; padding-bottom: 34px;
+      background: #0B0E11; border-top: 0.5px solid rgba(241,239,234,0.10);
+      display: flex; z-index: 30;
+    }
+    .wf-tab {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; font-size: 10px; color: #6E7B86; cursor: pointer; user-select: none;
+    }
+    .wf-tab.active { color: #D4A359; font-weight: 600; }
+    .wf-home-ind {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px; border-radius: 999px; background: rgba(241,239,234,0.45); z-index: 60;
+    }
+
+    /* Inner UI */
+    .d1-head {
+      padding: 48px 104px 10px 18px; min-height: 84px;
+      border-bottom: 1px solid rgba(241,239,234,0.10);
+    }
+    .d1-title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; }
+    .d1-sub { font-size: 11px; color: #8D99A4; margin-top: 2px; }
+    .d1-body { padding: 12px 16px 20px; }
+    .d1-banner {
+      background: rgba(212,163,89,0.14); border: 1px solid rgba(212,163,89,0.38);
+      border-radius: 10px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
+    .d1-btn-brass {
+      background: #D4A359; color: #0D1114; border: none; border-radius: 7px;
+      padding: 7px 11px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+    }
+    .d1-btn-brass:active { opacity: 0.85; }
+    .d1-btn-ghost {
+      width: 100%; margin-top: 12px; padding: 10px 12px; background: #171E24; color: #F1EFEA;
+      border: 1px solid rgba(241,239,234,0.18); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .d1-kpi3 {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      border-top: 1px solid rgba(241,239,234,0.10); border-bottom: 1px solid rgba(241,239,234,0.10);
+      padding: 10px 0; margin-top: 4px;
+    }
+    .d1-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid rgba(241,239,234,0.09);
+    }
+    .up { color: #E5534B; }
+    .down { color: #2EBD85; }
+    .brass { color: #D4A359; }
+    .muted { color: #8D99A4; }
+    .faint { color: #5D6A75; }
+    .subtabs { display: flex; gap: 18px; border-bottom: 1px solid rgba(241,239,234,0.10); margin-bottom: 10px; }
+    .subtab { padding-bottom: 8px; font-size: 13px; color: #8D99A4; cursor: pointer; border-bottom: 2px solid transparent; }
+    .subtab.on { color: #D4A359; font-weight: 700; border-bottom-color: #D4A359; }
+
+    /* Share Card */
+    .share-card {
+      width: 256px; background: #FFFFFF; border-radius: 8px; padding: 10px 8px 0;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.45); color: #111;
+    }
+  </style>
+</head>
+<body>
+  <div class="board" data-showboard="hero">
+    <div class="board-grid-bg"></div>
+
+    <!-- Board Masthead -->
+    <div style="position:absolute;left:56px;top:48px;width:860px;">
+      <div class="mono brass" style="font-size:13px;font-weight:600;margin-bottom:8px;">方向一 · 精密航海罗盘（暗场仪器盘）</div>
+      <div style="font-size:46px;font-weight:900;line-height:1.08;letter-spacing:-0.02em;">周期罗盘 CycleCompass</div>
+      <div style="font-size:15px;line-height:1.65;color:#B0BCC6;margin-top:12px;">
+        借鉴精密航海仪表盘的刻度秩序：首屏以双环周期罗盘直接给出「0.1846 · 中间区 · 存现金池」结论，砍掉 32 张同质白卡片与 emoji，底部 4-tab 专为周一开盘前 10 秒回头客设计。每台手机均可真实点击交互。
+      </div>
+    </div>
+
+    <!-- Phone Slots -->
+    <div id="slot-hero" style="position:absolute;left:56px;top:244px;"></div>
+    <div id="slot-global" style="position:absolute;left:476px;top:220px;"></div>
+    <div id="slot-sectors" style="position:absolute;left:812px;top:316px;"></div>
+    <div id="slot-portfolio" style="position:absolute;left:476px;top:936px;"></div>
+
+    <!-- Right Column Aside: WeChat Share Card + Color Derivation + Form Note -->
+    <div style="position:absolute;left:1144px;top:220px;width:256px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;">微信群 5:4 转发卡片</div>
+      <div style="background:#141A20;padding:12px;border-radius:14px;border:1px solid rgba(241,239,234,0.12);display:inline-block;">
+        <div class="share-card" style="width:232px;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#6E747B;margin-bottom:6px;">
+            <div style="width:16px;height:16px;border-radius:999px;background:#0D1114;display:flex;align-items:center;justify-content:center;">
+              <svg width="10" height="10" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#D4A359" stroke-width="1.5"/><circle cx="6" cy="6" r="1.5" fill="#D4A359"/></svg>
+            </div>
+            <span>周期罗盘 CycleCompass</span>
+          </div>
+          <div style="font-size:13px;font-weight:500;color:#111;line-height:1.4;margin-bottom:8px;">比值 0.1846 停在中间区，本周 ¥1,000 存现金池</div>
+          <div data-mp-share="" style="width:216px;height:173px;background:#0D1114;border-radius:4px;padding:12px;display:flex;flex-direction:column;justify-content:space-between;color:#F1EFEA;">
+            <div class="mono brass" style="font-size:10px;">2026-11-20 · 双策略周报</div>
+            <div>
+              <div class="mono" style="font-size:32px;font-weight:700;line-height:1;">0.1846</div>
+              <div style="font-size:11px;color:#8D99A4;margin-top:4px;">1500日分位 24.3% · 距低区 -13.3%</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <span style="font-size:10px;background:rgba(212,163,89,0.2);color:#D4A359;padding:2px 7px;border-radius:4px;">中间区</span>
+              <span style="font-size:10px;background:rgba(229,83,75,0.2);color:#E5534B;padding:2px 7px;border-radius:4px;">VIX 35.90</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#8C929A;border-top:0.5px solid #ECEEF0;margin-top:8px;padding:6px 0;">
+            <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="#7d7df0" stroke-width="1.4"/><circle cx="6" cy="6" r="1.8" fill="#7d7df0"/></svg>
+            <span>小程序</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:20px;background:rgba(20,26,31,0.9);border:1px solid rgba(241,239,234,0.12);border-radius:14px;padding:16px;">
+        <div class="mono brass" style="font-size:11px;font-weight:700;margin-bottom:8px;">色彩推导 · 航海夜视仪</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <div style="flex:1;height:24px;border-radius:5px;background:#0D1114;border:1px solid rgba(255,255,255,0.2);"></div>
+          <div style="flex:1;height:24px;border-radius:5px;background:#D4A359;"></div>
+          <div style="flex:1;height:24px;border-radius:5px;background:#E5534B;"></div>
+          <div style="flex:1;height:24px;border-radius:5px;background:#2EBD85;"></div>
+        </div>
+        <div style="font-size:12px;color:#B0BCC6;line-height:1.65;">
+          墨曜石底 <span class="mono">#0D1114</span> 压低蓝相；铜金 <span class="mono">#D4A359</span> 标定刻度与本周指令；朱砂涨与松石跌严格遵守 A 股语义。
+        </div>
+      </div>
+
+      <div style="margin-top:16px;font-size:12px;color:#8D99A4;line-height:1.7;">
+        <strong style="color:#F1EFEA;">form 来自内容的哪里：</strong>「周期罗盘」本质是一台校准宏观方位与风格偏航的精密仪器，所有视觉服务于刻度、读数与执行纪律。
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const DATA = {
+      macro: [
+        { code: 'VIX', name: '恐慌指数', price: '35.90', pct: 26.28, unit: 'CBOE' },
+        { code: 'BRENT', name: '布伦特原油', price: '92.63', pct: 0.70, unit: 'USD' },
+        { code: 'GOLD', name: '黄金盎司', price: '3534.64', pct: -2.49, unit: 'USD' },
+        { code: 'COPPER', name: 'LME 铜', price: '554.86', pct: -3.04, unit: 'USD' },
+        { code: 'DXY', name: '美元指数', price: '103.84', pct: 0.25, unit: 'ICE' },
+        { code: 'US20Y', name: '美债长债', price: '81.45', pct: 1.37, unit: 'TLT' },
+        { code: 'SILVER', name: '白银盎司', price: '41.18', pct: -3.90, unit: 'USD' },
+        { code: 'NGAS', name: '天然气', price: '3.79', pct: 2.99, unit: 'NYMEX' },
+      ],
+      sectors: [
+        { name: '存储芯片', pct: 3.73, stage: '景气高位', score: 90 },
+        { name: '半导体', pct: 2.85, stage: '复苏上行', score: 88 },
+        { name: 'AI 算力', pct: 2.58, stage: '繁荣期', score: 95 },
+        { name: '光伏', pct: 2.47, stage: '供给见底', score: 71 },
+        { name: '自动驾驶', pct: 2.39, stage: '规模试点', score: 85 },
+        { name: 'CPO 光模块', pct: 2.17, stage: '繁荣期', score: 93 },
+        { name: '锂电池', pct: 1.81, stage: '逐步筑底', score: 73 },
+        { name: '机器人', pct: 1.56, stage: '技术突破', score: 82 },
+        { name: '石油', pct: 1.43, stage: '高位震荡', score: 75 },
+        { name: '稀土', pct: 1.37, stage: '底部企稳', score: 74 },
+        { name: '生物医药', pct: -0.09, stage: '估值消化', score: 67 },
+        { name: '天然气', pct: -1.08, stage: '震荡下行', score: 65 },
+      ],
+      ai: [
+        { name: 'Token 价格', pct: 3.73, group: 'AI 产品' },
+        { name: 'SSD 固态', pct: 3.67, group: 'AI 设备' },
+        { name: '云算力租赁', pct: 3.66, group: 'AI 产品' },
+        { name: 'GPU 芯片', pct: 3.63, group: 'AI 设备' },
+        { name: 'MLCC 电容', pct: 2.44, group: 'AI 设备' },
+        { name: 'CPU 处理器', pct: 2.37, group: 'AI 设备' },
+        { name: 'DRAM 内存', pct: 2.35, group: 'AI 设备' },
+        { name: '光模块', pct: 2.32, group: 'AI 设备' },
+        { name: '电力设备', pct: 1.04, group: '能耗设施' },
+        { name: '电力现货', pct: -0.08, group: '能耗设施' },
+      ],
+      apac: [
+        { name: '韩国存储', pct: 4.57, market: 'KR' },
+        { name: '孟买 SENSEX', pct: 2.30, market: 'IN' },
+        { name: '日本半导体设备', pct: 1.14, market: 'JP' },
+        { name: '日经 225', pct: -5.06, market: 'JP' },
+        { name: '韩国 KOSPI', pct: -5.21, market: 'KR' },
+        { name: '韩国 KOSDAQ', pct: -5.71, market: 'KR' },
+      ],
+      dims: [
+        { name: '技术面', w: '50%', v: 23.0 },
+        { name: '股息利差', w: '25%', v: 70.2 },
+        { name: '估值分位', w: '15%', v: 9.2 },
+        { name: '市场风格', w: '10%', v: 24.3 },
+      ],
+    };
+
+    const fmtPct = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+
+    function compassSvg() {
+      const ratio = 0.1846;
+      const angle = -125 + ((ratio - 0.10) / 0.40) * 250;
+      let ticks = '';
+      for (let i = 0; i <= 40; i++) {
+        const deg = -125 + (i / 40) * 250;
+        const rad = ((deg - 90) * Math.PI) / 180;
+        const major = i % 10 === 0, mid = i % 5 === 0;
+        const r1 = major ? 83 : mid ? 87 : 90, r2 = 96;
+        const x1 = (124 + r1 * Math.cos(rad)).toFixed(1), y1 = (118 + r1 * Math.sin(rad)).toFixed(1);
+        const x2 = (124 + r2 * Math.cos(rad)).toFixed(1), y2 = (118 + r2 * Math.sin(rad)).toFixed(1);
+        ticks += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${major ? '#D4A359' : 'rgba(241,239,234,0.28)'}" stroke-width="${major ? 1.6 : 0.8}" />`;
+      }
+      return `
+        <div style="display:flex;justify-content:center;padding:6px 0 4px;">
+          <svg width="248" height="194" viewBox="0 0 248 194">
+            <circle cx="124" cy="118" r="96" fill="none" stroke="rgba(241,239,234,0.08)" stroke-width="1" />
+            <circle cx="124" cy="118" r="76" fill="none" stroke="rgba(241,239,234,0.07)" stroke-width="1" stroke-dasharray="2 4" />
+            ${ticks}
+            <path d="M 46 172 A 95 95 0 0 1 39 74" fill="none" stroke="#2EBD85" stroke-width="3.5" stroke-linecap="round" opacity="0.72" />
+            <path d="M 42 68 A 95 95 0 0 1 178 40" fill="none" stroke="#D4A359" stroke-width="4" stroke-linecap="round" />
+            <path d="M 184 44 A 95 95 0 0 1 202 172" fill="none" stroke="#E5534B" stroke-width="3.5" stroke-linecap="round" opacity="0.72" />
+            <text x="18" y="180" fill="#8D99A4" font-size="10" class="mono">0.10</text>
+            <text x="16" y="70" fill="#2EBD85" font-size="10" class="mono">0.16</text>
+            <text x="184" y="36" fill="#E5534B" font-size="10" class="mono">0.28</text>
+            <text x="206" y="180" fill="#8D99A4" font-size="10" class="mono">0.50</text>
+            <g transform="rotate(${angle.toFixed(1)}, 124, 118)">
+              <line x1="124" y1="118" x2="124" y2="32" stroke="#D4A359" stroke-width="2.2" stroke-linecap="round" />
+              <circle cx="124" cy="32" r="3.5" fill="#F1EFEA" stroke="#D4A359" stroke-width="1.5" />
+            </g>
+            <circle cx="124" cy="118" r="6" fill="#141A1F" stroke="#D4A359" stroke-width="2" />
+            <text x="124" y="148" text-anchor="middle" fill="#F1EFEA" font-size="28" font-weight="700" class="mono">0.1846</text>
+            <text x="124" y="166" text-anchor="middle" fill="#D4A359" font-size="11" font-weight="600">中间区 · 1500日分位 24.3%</text>
+            <text x="124" y="184" text-anchor="middle" fill="#8D99A4" font-size="10" class="mono">ERP 2.81% · 置信度 88%</text>
+          </svg>
+        </div>
+      `;
+    }
+
+    const ICONS = {
+      '策略': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+      '行情': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l6-6 4 4 8-8"/></svg>',
+      '产业': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
+      '账本': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="14" x2="13" y2="14"/></svg>',
+    };
+
+    function mountPhone(containerId, opts) {
+      const state = {
+        tab: opts.initialTab,
+        sectorSub: 'global',
+        showBacktest: false,
+        cashPool: 1000,
+        availCash: 5200,
+        txs: [
+          { date: '2026-11-16', tag: '现金池', desc: '中间区：本周定投 ¥1,000 存入计划现金池' },
+          { date: '2026-11-09', tag: '红利定投', desc: '高区：买入红利低波100 880份（¥1.136）' },
+        ],
+      };
+
+      const el = document.getElementById(containerId);
+      function render() {
+        let content = '';
+        if (state.tab === '策略') {
+          content = `
+            <div class="d1-head"><div class="d1-title">周期罗盘</div><div class="d1-sub mono">2026-11-20 收盘</div></div>
+            <div class="d1-body">
+              <div class="d1-banner">
+                <div>
+                  <div class="brass" style="font-size:12px;font-weight:600;">本周指令 · 暂存现金池</div>
+                  <div style="font-size:12px;margin-top:2px;">暂停指数买入，¥1,000 转入待回补池</div>
+                </div>
+                <button class="d1-btn-brass" data-action="go-ledger">去打卡</button>
+              </div>
+              ${compassSvg()}
+              <div class="d1-kpi3">
+                <div><div class="muted" style="font-size:11px;">距低区(&lt;0.16)</div><div class="mono down" style="font-size:14px;font-weight:700;margin-top:2px;">-13.3%</div></div>
+                <div style="text-align:center;border-left:1px solid rgba(241,239,234,0.1);border-right:1px solid rgba(241,239,234,0.1);"><div class="muted" style="font-size:11px;">距高区(≥0.28)</div><div class="mono up" style="font-size:14px;font-weight:700;margin-top:2px;">+51.7%</div></div>
+                <div style="text-align:right;"><div class="muted" style="font-size:11px;">红利四维</div><div class="mono" style="font-size:14px;font-weight:700;margin-top:2px;">6.57<span class="muted" style="font-size:11px;">/20</span></div></div>
+              </div>
+              <div style="margin-top:12px;">
+                <div style="font-size:13px;font-weight:600;">宏观定位 · 弱复苏与海外结构性繁荣分化</div>
+                <div class="muted" style="font-size:12px;line-height:1.58;margin-top:4px;">十年期国债维持低位（1.58%），股息利差 2.81% 具性价比；红利防守为主，低区伺机成长。</div>
+              </div>
+              <div style="margin-top:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                  <span style="font-size:13px;font-weight:600;">红利低波100 四维拆解</span>
+                  <span class="brass" style="font-size:11px;">门控通行 · 暂停新增</span>
+                </div>
+                ${DATA.dims.map(d => `
+                  <div style="padding:6px 0;border-top:1px solid rgba(241,239,234,0.09);">
+                    <div style="display:flex;justify-content:space-between;font-size:12px;">
+                      <span>${d.name} <span class="faint">${d.w}</span></span>
+                      <span class="mono ${d.v >= 60 ? 'brass' : ''}" style="font-weight:600;">${d.v.toFixed(1)}</span>
+                    </div>
+                    <div style="height:3px;background:rgba(241,239,234,0.08);border-radius:2px;margin-top:4px;overflow:hidden;">
+                      <div style="width:${d.v}%;height:100%;background:${d.v >= 60 ? '#D4A359' : 'rgba(241,239,234,0.45)'};"></div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+              <button class="d1-btn-ghost" data-action="toggle-bt">${state.showBacktest ? '收起 800 交易日回测战报' : '展开 800 交易日全历史回测（XIRR 7.39%）'}</button>
+              ${state.showBacktest ? `
+                <div style="margin-top:10px;padding:12px;background:#141A1F;border:1px solid rgba(241,239,234,0.1);border-radius:8px;">
+                  <div class="mono muted" style="font-size:11px;">2023-08-02 ~ 2026-11-20 · 回补 6 次</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+                    <div><div class="muted" style="font-size:11px;">期末资产</div><div class="mono" style="font-size:15px;font-weight:700;">¥186,016</div></div>
+                    <div><div class="muted" style="font-size:11px;">累计收益</div><div class="mono up" style="font-size:15px;font-weight:700;">+12.74%</div></div>
+                    <div><div class="muted" style="font-size:11px;">年化 XIRR</div><div class="mono brass" style="font-size:14px;font-weight:700;">7.39%</div></div>
+                    <div><div class="muted" style="font-size:11px;">回撤 / 夏普</div><div class="mono" style="font-size:14px;font-weight:600;">24.9% / 2.42</div></div>
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        } else if (state.tab === '行情') {
+          content = `
+            <div class="d1-head"><div class="d1-title">全球宏观盘面</div><div class="d1-sub mono">8 项核心锚定资产 · 实时同步</div></div>
+            <div class="d1-body">
+              <div style="background:rgba(229,83,75,0.14);border:1px solid rgba(229,83,75,0.35);border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <div><div class="up" style="font-size:11px;font-weight:600;">波动率异动警示</div><div style="font-size:14px;font-weight:700;margin-top:2px;">恐慌指数 VIX 升至 35.90</div></div>
+                <div class="mono up" style="font-size:18px;font-weight:700;">+26.28%</div>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding-bottom:6px;border-bottom:1px solid rgba(241,239,234,0.2);font-size:11px;" class="faint">
+                <span>资产 / 代码</span><span>最新价 · 涨跌幅</span>
+              </div>
+              ${DATA.macro.map(m => `
+                <div class="d1-row">
+                  <div><div style="font-size:14px;font-weight:600;">${m.name}</div><div class="mono faint" style="font-size:11px;margin-top:1px;">${m.code} · ${m.unit}</div></div>
+                  <div style="text-align:right;"><div class="mono" style="font-size:15px;font-weight:700;">${m.price}</div><div class="mono ${m.pct >= 0 ? 'up' : 'down'}" style="font-size:12px;font-weight:600;margin-top:1px;">${fmtPct(m.pct)}</div></div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        } else if (state.tab === '产业') {
+          const listHtml = state.sectorSub === 'global'
+            ? DATA.sectors.map(s => `
+                <div class="d1-row">
+                  <div style="width:42%;"><div style="font-size:13px;font-weight:600;">${s.name}</div><div class="faint" style="font-size:11px;">${s.stage}</div></div>
+                  <div style="width:30%;padding-right:10px;">
+                    <div style="height:4px;background:rgba(241,239,234,0.08);border-radius:2px;"><div style="width:${s.score}%;height:100%;background:${s.score >= 85 ? '#D4A359' : 'rgba(241,239,234,0.35)'};border-radius:2px;"></div></div>
+                    <div class="mono faint" style="font-size:10px;margin-top:2px;">景气 ${s.score}</div>
+                  </div>
+                  <div class="mono ${s.pct >= 0 ? 'up' : 'down'}" style="width:28%;text-align:right;font-size:13px;font-weight:700;">${fmtPct(s.pct)}</div>
+                </div>
+              `).join('')
+            : state.sectorSub === 'ai'
+            ? DATA.ai.map(a => `
+                <div class="d1-row">
+                  <div><span style="font-size:13px;font-weight:600;">${a.name}</span><span class="faint" style="font-size:11px;margin-left:8px;">${a.group}</span></div>
+                  <span class="mono ${a.pct >= 0 ? 'up' : 'down'}" style="font-size:13px;font-weight:700;">${fmtPct(a.pct)}</span>
+                </div>
+              `).join('')
+            : DATA.apac.map(a => `
+                <div class="d1-row">
+                  <div><span class="mono brass" style="font-size:10px;border:1px solid rgba(212,163,89,0.4);border-radius:3px;padding:1px 4px;margin-right:8px;">${a.market}</span><span style="font-size:13px;font-weight:600;">${a.name}</span></div>
+                  <span class="mono ${a.pct >= 0 ? 'up' : 'down'}" style="font-size:13px;font-weight:700;">${fmtPct(a.pct)}</span>
+                </div>
+              `).join('');
+          content = `
+            <div class="d1-head"><div class="d1-title">产业景气追踪</div><div class="d1-sub mono">无表情符号 · 纯景气与涨跌序列</div></div>
+            <div class="d1-body">
+              <div class="subtabs">
+                <div class="subtab ${state.sectorSub === 'global' ? 'on' : ''}" data-sub="global">全球产业</div>
+                <div class="subtab ${state.sectorSub === 'ai' ? 'on' : ''}" data-sub="ai">AI 算力链</div>
+                <div class="subtab ${state.sectorSub === 'apac' ? 'on' : ''}" data-sub="apac">日韩亚太</div>
+              </div>
+              ${listHtml}
+            </div>
+          `;
+        } else {
+          const total = 20650 + state.availCash + state.cashPool;
+          content = `
+            <div class="d1-head"><div class="d1-title">模拟实盘账本</div><div class="d1-sub mono">资金守恒双记账 · 周定投 ¥1,000</div></div>
+            <div class="d1-body">
+              <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:12px;border-bottom:1px solid rgba(241,239,234,0.1);">
+                <div><div class="muted" style="font-size:12px;">总资产估值</div><div class="mono" style="font-size:27px;font-weight:700;margin-top:2px;">¥${total.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div></div>
+                <div style="text-align:right;"><div class="muted" style="font-size:11px;">累计浮盈</div><div class="mono up" style="font-size:13px;font-weight:700;margin-top:2px;">+¥650.00 (+3.25%)</div></div>
+              </div>
+              <div class="d1-kpi3">
+                <div><div class="brass" style="font-size:11px;">计划现金池</div><div class="mono brass" style="font-size:15px;font-weight:700;margin-top:2px;">¥${state.cashPool.toLocaleString()}</div></div>
+                <div style="text-align:center;border-left:1px solid rgba(241,239,234,0.1);border-right:1px solid rgba(241,239,234,0.1);"><div class="muted" style="font-size:11px;">持仓市值</div><div class="mono" style="font-size:15px;font-weight:700;margin-top:2px;">¥20,650</div></div>
+                <div style="text-align:right;"><div class="muted" style="font-size:11px;">可用现金</div><div class="mono" style="font-size:15px;font-weight:700;margin-top:2px;">¥${state.availCash.toLocaleString()}</div></div>
+              </div>
+              <button class="d1-btn-brass" data-action="checkin" style="width:100%;margin-top:12px;padding:11px;">本周打卡：¥1,000 存入现金池</button>
+              <div style="margin-top:14px;">
+                <div class="muted" style="font-size:12px;font-weight:600;margin-bottom:6px;">双指数持仓</div>
+                <div style="padding:9px 0;border-top:1px solid rgba(241,239,234,0.09);">
+                  <div style="display:flex;justify-content:space-between;"><span style="font-size:14px;font-weight:600;">红利低波100 <span class="mono faint" style="font-size:11px;">515100</span></span><span class="mono" style="font-size:14px;font-weight:700;">¥14,847.50</span></div>
+                  <div style="display:flex;justify-content:space-between;margin-top:3px;"><span class="mono faint" style="font-size:11px;">12,500份 · 成本 1.120 / 现价 1.188</span><span class="mono up" style="font-size:12px;font-weight:600;">+6.05%</span></div>
+                </div>
+                <div style="padding:9px 0;border-top:1px solid rgba(241,239,234,0.09);">
+                  <div style="display:flex;justify-content:space-between;"><span style="font-size:14px;font-weight:600;">创业板50 <span class="mono faint" style="font-size:11px;">159949</span></span><span class="mono" style="font-size:14px;font-weight:700;">¥5,802.40</span></div>
+                  <div style="display:flex;justify-content:space-between;margin-top:3px;"><span class="mono faint" style="font-size:11px;">8,000份 · 成本 0.750 / 现价 0.725</span><span class="mono down" style="font-size:12px;font-weight:600;">-3.29%</span></div>
+                </div>
+              </div>
+              <div style="margin-top:12px;">
+                <div class="muted" style="font-size:12px;font-weight:600;margin-bottom:4px;">审计流水</div>
+                ${state.txs.slice(0, 3).map(t => `
+                  <div style="padding:7px 0;border-top:1px solid rgba(241,239,234,0.09);">
+                    <div style="display:flex;justify-content:space-between;font-size:11px;"><span class="mono faint">${t.date}</span><span class="brass">${t.tag}</span></div>
+                    <div style="font-size:12px;margin-top:2px;">${t.desc}</div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        const scale = opts.scale;
+        el.innerHTML = `
+          <div style="width:${395 * scale}px;margin-bottom:10px;">
+            <div style="font-size:15px;font-weight:700;">${opts.label}</div>
+            <div class="muted" style="font-size:13px;margin-top:2px;">${opts.note}</div>
+          </div>
+          <div style="width:${395 * scale}px;height:${832 * scale}px;">
+            <div style="transform:scale(${scale});transform-origin:0 0;width:395px;">
+              <div class="wf-wrap">
+                <div class="wf-screen" data-mp-page="${opts.page}" data-mp-title="周期罗盘" data-mp-nav="custom" data-mp-nav-text="white" data-mp-tab="${state.tab}">
+                  <div class="wf-status">
+                    <span>09:30</span>
+                    <svg width="66" height="12" viewBox="0 0 66 12" fill="#F1EFEA">
+                      <rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="6" width="3" height="6" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/>
+                      <path d="M30 11.2a1.2 1.2 0 100-2.4 1.2 1.2 0 000 2.4zM25.6 6.4a6.4 6.4 0 018.8 0l-1.1 1.1a4.8 4.8 0 00-6.6 0zM23 3.8a10 10 0 0114 0l-1.1 1.1a8.4 8.4 0 00-11.8 0z"/>
+                      <rect x="41" y="0.75" width="22" height="10.5" rx="3" fill="none" stroke="#F1EFEA" stroke-opacity="0.45" stroke-width="1"/><rect x="43" y="2.75" width="16" height="6.5" rx="1.5"/><rect x="64" y="4" width="1.5" height="4" rx="0.75" fill-opacity="0.45"/>
+                    </svg>
+                  </div>
+                  <div class="wf-capsule">
+                    <div class="wf-cap-half"><svg width="20" height="6" viewBox="0 0 20 6"><circle cx="3" cy="3" r="2" fill="#fff"/><circle cx="10" cy="3" r="2.6" fill="#fff"/><circle cx="17" cy="3" r="2" fill="#fff"/></svg></div>
+                    <div class="wf-cap-sep"></div>
+                    <div class="wf-cap-half"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="9" cy="9" r="2.6" fill="#fff"/></svg></div>
+                  </div>
+                  <div class="wf-scroll">${content}</div>
+                  <div class="wf-tabbar">
+                    ${['策略', '行情', '产业', '账本'].map(t => `
+                      <div class="wf-tab ${state.tab === t ? 'active' : ''}" data-tab="${t}">
+                        ${ICONS[t]}<span>${t}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                  <div class="wf-home-ind"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        el.querySelectorAll('[data-tab]').forEach(n => n.onclick = () => { state.tab = n.dataset.tab; render(); });
+        el.querySelectorAll('[data-sub]').forEach(n => n.onclick = () => { state.sectorSub = n.dataset.sub; render(); });
+        const goL = el.querySelector('[data-action="go-ledger"]');
+        if (goL) goL.onclick = () => { state.tab = '账本'; render(); };
+        const tBt = el.querySelector('[data-action="toggle-bt"]');
+        if (tBt) tBt.onclick = () => { state.showBacktest = !state.showBacktest; render(); };
+        const ci = el.querySelector('[data-action="checkin"]');
+        if (ci) ci.onclick = () => {
+          if (state.availCash < 1000) return;
+          state.availCash -= 1000;
+          state.cashPool += 1000;
+          state.txs.unshift({ date: '2026-11-23', tag: '现金池', desc: '中间区打卡：定投 ¥1,000 存入计划现金池' });
+          render();
+        };
+      }
+      render();
+    }
+
+    mountPhone('slot-hero', { initialTab: '策略', scale: 0.96, page: 'pages/index/index', label: '首页 · 周期罗盘与双策略', note: '首屏即双环仪器盘与本周指令，支持展开 800 日回测' });
+    mountPhone('slot-global', { initialTab: '行情', scale: 0.76, page: 'pages/markets/markets', label: '全球宏观盘面', note: 'VIX 异动置顶 + 8 项等宽细线行情表' });
+    mountPhone('slot-sectors', { initialTab: '产业', scale: 0.76, page: 'pages/sectors/sectors', label: '产业景气追踪', note: '去 emoji，景气条与涨跌同列扫读' });
+    mountPhone('slot-portfolio', { initialTab: '账本', scale: 0.76, page: 'pages/portfolio/portfolio', label: '模拟实盘账本', note: '点击按钮可真实演练「¥1,000 存入现金池」' });
+  </script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+name: CycleCompass CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-backend:
+    name: Python Quant & API Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+      - name: Run pytest suite
+        run: pytest tests/ -v
+
+  go-backend:
+    name: Go API Build & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/api-go/go.mod
+          cache: true
+          cache-dependency-path: services/api-go/go.sum
+      - name: Vet & Test
+        run: |
+          go vet ./...
+          go test -race ./...
+      - name: Build binary
+        run: CGO_ENABLED=0 go build -o /tmp/cyclecompass-go ./cmd/server
+
+  miniapp-frontend:
+    name: Miniapp Type-check, Test & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/miniapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: apps/miniapp/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm type-check
+      - name: Run Vitest
+        run: pnpm test:run
+      - name: Build WeChat Mini Program
+        run: pnpm build:mp-weixin

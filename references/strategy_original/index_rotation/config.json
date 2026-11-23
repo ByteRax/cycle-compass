@@ -1,0 +1,20 @@
+{
+  "start_date": "20160101",
+  "low_line": 0.16,
+  "high_line": 0.28,
+  "quantile_window": 1500,
+  "weekly_amount": 1000.0,
+  "daily_base_amount": 200.0,
+  "rsi_period": 70,
+  "boll_period": 100,
+  "boll_std_mult": 2.0,
+  "min_pe_history": 250,
+  "max_market_stale_days": 10,
+  "max_aux_stale_days": 10,
+  "dividend_yield_field": "股息率1",
+  "rotation_gate_scoring": true,
+  "data_dir": "data",
+  "output_dir": "output",
+  "state_file": "data/live_state.json",
+  "schedule_time": "20:30"
+}

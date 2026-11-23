@@ -1,0 +1,70 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "account_id": "ACC_DEMO_001",
+    "total_asset": 22802.08,
+    "available_cash": 5200.0,
+    "cash_pool": 1000.0,
+    "positions_value": 16602.08,
+    "total_cost": 20800.0,
+    "total_profit": -4197.92,
+    "total_profit_pct": -20.18,
+    "positions": [
+      {
+        "symbol": "930955",
+        "name": "红利低波100(515100)",
+        "shares": 12500.0,
+        "current_price": 1.1878,
+        "market_value": 14847.84,
+        "cost_price": 1.12,
+        "total_cost": 14000.0,
+        "unrealized_profit": 847.84,
+        "unrealized_profit_pct": 6.06
+      },
+      {
+        "symbol": "399673",
+        "name": "创业板50(159949)",
+        "shares": 8000.0,
+        "current_price": 0.2193,
+        "market_value": 1754.24,
+        "cost_price": 0.85,
+        "total_cost": 6800.0,
+        "unrealized_profit": -5045.76,
+        "unrealized_profit_pct": -74.2
+      }
+    ],
+    "recent_transactions": [
+      {
+        "date": "2026-11-16",
+        "event_type": "cash_deposit",
+        "symbol": null,
+        "target_name": "计划现金池",
+        "shares": 0.0,
+        "price": 0.0,
+        "amount": 1000.0,
+        "cash_inflow": 1000.0,
+        "cash_outflow": 1000.0,
+        "cash_pool_delta": 1000.0,
+        "cash_balance_after": 0.0,
+        "cash_pool_after": 1000.0,
+        "description": "中间区：本周定投资金 1000 元存入计划现金池"
+      },
+      {
+        "date": "2026-11-09",
+        "event_type": "weekly_invest",
+        "symbol": "515100",
+        "target_name": "红利低波100(515100)",
+        "shares": 880.0,
+        "price": 1.136,
+        "amount": 1000.0,
+        "cash_inflow": 1000.0,
+        "cash_outflow": 1000.0,
+        "cash_pool_delta": 0.0,
+        "cash_balance_after": 0.0,
+        "cash_pool_after": 0.0,
+        "description": "高区：周定投 1000 元买入红利低波100"
+      }
+    ]
+  }
+}

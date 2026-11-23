@@ -1,0 +1,109 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "current_phase": "弱复苏与海外结构性繁荣分化",
+    "phase_code": 1,
+    "dominant_asset": "红利高股息与海外AI核心资产",
+    "macro_indicators": [
+      {
+        "code": "CN10Y",
+        "name": "中国十年期国债收益率",
+        "value": 1.5803,
+        "unit": "%",
+        "period": "日度",
+        "trend": "down",
+        "percentile_10y": 0.05,
+        "as_of": "2026-11-20",
+        "meta": {
+          "source_name": "中国债券信息网/种子数据",
+          "symbol": "CN10Y",
+          "as_of": "2026-11-20",
+          "status": "offline_seed",
+          "latency_ms": null,
+          "warning": null,
+          "updated_at": "2026-11-22T20:02:58.621704"
+        }
+      },
+      {
+        "code": "US10Y",
+        "name": "美国十年期国债收益率",
+        "value": 4.412,
+        "unit": "%",
+        "period": "日度",
+        "trend": "up",
+        "percentile_10y": 0.82,
+        "as_of": "2026-11-20",
+        "meta": {
+          "source_name": "FRED/种子数据",
+          "symbol": "US10Y",
+          "as_of": "2026-11-20",
+          "status": "offline_seed",
+          "latency_ms": null,
+          "warning": null,
+          "updated_at": "2026-11-22T20:02:58.621733"
+        }
+      },
+      {
+        "code": "DXY",
+        "name": "美元指数 (DXY)",
+        "value": 106.82,
+        "unit": "点",
+        "period": "实时",
+        "trend": "up",
+        "percentile_10y": 0.88,
+        "as_of": "2026-11-20",
+        "meta": {
+          "source_name": "ICE/种子数据",
+          "symbol": "DXY",
+          "as_of": "2026-11-20",
+          "status": "offline_seed",
+          "latency_ms": null,
+          "warning": null,
+          "updated_at": "2026-11-22T20:02:58.621741"
+        }
+      },
+      {
+        "code": "GOLD",
+        "name": "伦敦现货黄金",
+        "value": 2712.5,
+        "unit": "美元/盎司",
+        "period": "实时",
+        "trend": "up",
+        "percentile_10y": 0.99,
+        "as_of": "2026-11-20",
+        "meta": {
+          "source_name": "LBMA/种子数据",
+          "symbol": "GOLD",
+          "as_of": "2026-11-20",
+          "status": "offline_seed",
+          "latency_ms": null,
+          "warning": null,
+          "updated_at": "2026-11-22T20:02:58.621755"
+        }
+      },
+      {
+        "code": "BRENT",
+        "name": "ICE布伦特原油",
+        "value": 75.17,
+        "unit": "美元/桶",
+        "period": "实时",
+        "trend": "neutral",
+        "percentile_10y": 0.48,
+        "as_of": "2026-11-20",
+        "meta": {
+          "source_name": "ICE/种子数据",
+          "symbol": "BRENT",
+          "as_of": "2026-11-20",
+          "status": "offline_seed",
+          "latency_ms": null,
+          "warning": null,
+          "updated_at": "2026-11-22T20:02:58.621762"
+        }
+      }
+    ],
+    "equity_bond_spread": 2.8097,
+    "style_preference": "红利防守为主，低区伺机成长",
+    "summary": "国内十年期国债维持低位，红利股息率利差极具性价比；创业板50/红利低波100比值处于24%历史分位中间偏低区。"
+  }
+}

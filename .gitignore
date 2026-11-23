@@ -155,3 +155,51 @@ vite.config.ts.timestamp-*
 .nx/cache
 .nx/workspace-data
 .nx/migrate-runs
+
+# Mini program upload private key
+private*.key
+private.*.key
+private.key
+*.key
+
+# Python artifacts & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.db
+*.sqlite3
+
+# macOS & IDE system files
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Go build artifacts & test outputs
+services/api-go/cyclecompass-go
+cyclecompass-go
+*.test
+*.out
+profile.out
+go.work
+go.work.sum
+
+# SQLite WAL and shared memory files
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+
+

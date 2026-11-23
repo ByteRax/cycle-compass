@@ -1,0 +1,197 @@
+{
+  "git.enableSmartCommit": true,
+  "git.confirmSync": false,
+  "git.autofetch": true,
+  "emmet.includeLanguages": {
+    "vue-html": "html",
+    "vue": "html"
+  },
+  // 配置语言的文件关联
+  "files.associations": {
+    "pages.json": "jsonc", // pages.json 可以写注释
+    "manifest.json": "jsonc" // manifest.json 可以写注释
+  },
+  "stylelint.enable": false, // 禁用 stylelint
+  "css.validate": false, // 禁用 CSS 内置验证
+  "scss.validate": false, // 禁用 SCSS 内置验证
+  "less.validate": false, // 禁用 LESS 内置验证
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    "README.md": "index.html,favicon.ico,robots.txt,CHANGELOG.md",
+    "docker.md": "Dockerfile,docker*.md,nginx*,.dockerignore",
+    "pages.config.ts": "manifest.config.ts,openapi-ts-request.config.ts",
+    "eslint.config.mjs": ".commitlintrc.*,.oxfmt*,.oxlint*,.prettierignore,.editorconfig,.commitlint.cjs,.eslint*",
+    "*.ts": "$(capture).test.ts, $(capture).test.tsx",
+    "*.tsx": "$(capture).test.ts, $(capture).test.tsx",
+    "CHANGELOG.md": "CHANGELOG*",
+    ".env.dev": ".env.dev,.env.prod,.env.test",
+    "project.config.json": "postcss.config.js,project.tt.json,jest.config.ts,babel.config.js,.stylelintrc.js,.eslintrc.js,tailwind.config.js,.oxfmtrc.json,.oxlintrc.json,.prettierignore,openapi.config.ts",
+    "package.json": "tsconfig.json,pnpm-lock.yaml,pnpm-workspace.yaml,LICENSE,.gitattributes,.gitignore,.gitpod.yml,CNAME,.npmrc,.browserslistrc",
+    ".eslintrc.cjs": ".eslintignore,.prettierignore,.stylelintignore,.commitlintrc.*,.stylelintrc.*,.eslintrc-auto-import.json,.editorconfig,.commitlint.cjs"
+  },
+  // 自动格式化
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": "active",
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+  "files.eol": "\n", // 新文件默认使用 LF
+  "files.insertFinalNewline": true, // 文件末尾自动添加空行（推荐）
+  "files.trimTrailingWhitespace": true, // 自动删除行尾空格
+  "editor.codeActionsOnSave": {
+    "source.format.oxc": "always",
+    "source.fixAll.oxc": "always",
+    "source.fixAll.eslint": "explicit",
+    "source.fixAll.stylelint": "explicit"
+  },
+  "[vue]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[scss]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  // 保存
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  // 路径智能提示
+  "path-intellisense.autoSlash": true,
+  // 错误高亮
+  "errorLens.enabled": true,
+  "errorLens.fontWeight": "bold",
+  "oxc.configPath": ".oxlintrc.json",
+  "oxc.disableNestedConfig": true,
+  "oxc.fixKind": "safe_fix",
+  "oxc.fmt.configPath": ".oxfmtrc.json",
+  "oxc.requireConfig": true,
+  // Silent the stylistic rules in you IDE, but still auto fix them
+  "eslint.rules.customizations": [
+    {
+      "rule": "style/*",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "format/*",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "*-indent",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "*-spacing",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "*-spaces",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "*-order",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "*-dangle",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "*-newline",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "*quotes",
+      "severity": "off",
+      "fixable": true
+    },
+    {
+      "rule": "*semi",
+      "severity": "off",
+      "fixable": true
+    }
+  ],
+  // Enable eslint for all supported languages
+  "eslint.enable": true,
+  "eslint.format.enable": false,
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact",
+    "vue",
+    "html",
+    "markdown",
+    "json",
+    "jsonc",
+    "yaml",
+    "toml",
+    "xml",
+    "gql",
+    "graphql",
+    "astro",
+    "svelte",
+    "css",
+    "less",
+    "scss",
+    "pcss",
+    "postcss"
+  ],
+  "cSpell.words": [
+    "alova",
+    "Aplipay",
+    "attributify",
+    "chooseavatar",
+    "climblee",
+    "commitlint",
+    "dcloudio",
+    "iconfont",
+    "oxlint",
+    "qrcode",
+    "refresherrefresh",
+    "scrolltolower",
+    "tabbar",
+    "Toutiao",
+    "uniapp",
+    "unibest",
+    "unocss",
+    "uview",
+    "uvui",
+    "Wechat",
+    "WechatMiniprogram",
+    "Weixin"
+  ],
+  "eslint.probe": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact",
+    "html",
+    "vue",
+    "markdown",
+    "json",
+    "jsonc"
+  ],
+  "stylelint.validate": [
+    "css",
+    "scss",
+    "vue"
+  ],
+  "stylelint.customSyntax": "postcss-scss"
+}

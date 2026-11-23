@@ -1,0 +1,42 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+unpackage/
+uni_modules/
+node_modules
+.pnpm-store
+.DS_Store
+dist
+*.local
+
+# Editor directories and files
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Auto-generated type files
+src/types/auto-import.d.ts
+src/types/components.d.ts
+src/types/uni-pages.d.ts
+src/types/async-import.d.ts
+src/types/async-component.d.ts
+
+# Local env overrides
+env/.env.*.local
+/.omc/
+/.claude/worktrees/
+
+# Mini program private key
+private*.key
+private.*.key
+private.key
+*.key

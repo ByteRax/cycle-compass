@@ -1,0 +1,16 @@
+.git
+.github
+.agents
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+node_modules
+apps/miniapp/dist
+services/api-go
+*.db
+*.db-wal
+*.db-shm
