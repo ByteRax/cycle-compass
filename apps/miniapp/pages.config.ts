@@ -13,7 +13,10 @@ export default defineUniPages({
     backgroundColorTop: '@bgColorTop',
     backgroundColorBottom: '@bgColorBottom',
     enablePullDownRefresh: false,
-    onReachBottomDistance: 50
+    onReachBottomDistance: 50,
+    h5: {
+      titleNView: false
+    }
   },
   easycom: {
     autoscan: true,

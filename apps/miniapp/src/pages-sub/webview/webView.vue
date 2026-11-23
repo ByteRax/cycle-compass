@@ -3,7 +3,10 @@ import type { WebViewOnMessageEvent } from '@uni-helper/uni-types'
 
 definePage({
   style: {
-    navigationBarTitleText: '...'
+    navigationBarTitleText: '...',
+    h5: {
+      titleNView: false
+    }
   }
 })
 const url = ref()

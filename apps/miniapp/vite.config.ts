@@ -24,7 +24,13 @@ import manifestConfig from './manifest.config'
 // https://vitejs.dev/config/
 export default async ({ mode }: ConfigEnv) => {
   const { UNI_PLATFORM, SKIP_OPEN_DEVTOOLS } = process.env
-  const env = loadEnv(mode, path.resolve(process.cwd(), 'env'))
+  const rawEnv = loadEnv(mode, path.resolve(process.cwd(), 'env'))
+  const env: Record<string, any> = {
+    VITE_APP_TITLE: '周期罗盘',
+    VITE_APP_PUBLIC_BASE: '/',
+    ...rawEnv
+  }
+  process.env['VITE_APP_TITLE'] = env['VITE_APP_TITLE']
   const {
     VITE_APP_PORT,
     VITE_SERVER_BASEURL,

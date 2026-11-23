@@ -48,7 +48,10 @@ definePage({
     navigationBarBackgroundColor: '#090C0F',
     navigationBarTextStyle: 'white',
     backgroundColor: '#090C0F',
-    enablePullDownRefresh: true
+    enablePullDownRefresh: true,
+    h5: {
+      titleNView: false
+    }
   }
 })
 

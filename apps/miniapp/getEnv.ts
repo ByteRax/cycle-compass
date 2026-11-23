@@ -27,4 +27,12 @@ export function isBuildCommand(
   return args.includes('build') && !args.includes('--watch') && !args.includes('-w')
 }
 // 获取环境变量的范例
-export const env = loadEnv(getMode(), path.resolve(process.cwd(), 'env'))
+const rawEnv = loadEnv(getMode(), path.resolve(process.cwd(), 'env'))
+export const env = {
+  VITE_APP_TITLE: '周期罗盘',
+  VITE_FALLBACK_LOCALE: 'zh-Hans',
+  VITE_APP_PUBLIC_BASE: '/',
+  VITE_UNI_APPID: '__UNI__B746FDE',
+  VITE_WX_APPID: 'wx526d0e747cc6c067',
+  ...rawEnv
+}
