@@ -14,6 +14,9 @@ defineOptions({
 defineProps<{
   globalEconomicData: MarketQuote[]
   vixQuote?: MarketQuote
+  hkUsMacroList?: SymbolPriceItem[]
+  twMacroList?: SymbolPriceItem[]
+  cryptoAgriList?: SymbolPriceItem[]
   krMacroList: SymbolPriceItem[]
   krSectorList: PriceItem[]
   jpMacroList: SymbolPriceItem[]
@@ -28,7 +31,8 @@ defineProps<{
 
 const marketSubTabs = [
   { key: 'global', label: '全球宏观' },
-  { key: 'apac', label: '日韩亚太' },
+  { key: 'hk_us', label: '港美中概' },
+  { key: 'apac', label: '亚太日韩台' },
   { key: 'metals', label: '有色金属' }
 ] as const
 
@@ -37,6 +41,7 @@ type MarketSubTabKey = (typeof marketSubTabs)[number]['key']
 const marketSubTab = ref<MarketSubTabKey>('global')
 const loadedSubTabs = reactive<Record<MarketSubTabKey, boolean>>({
   global: true,
+  hk_us: false,
   apac: false,
   metals: false
 })
@@ -45,13 +50,37 @@ const switchSubTab = (key: MarketSubTabKey) => {
   marketSubTab.value = key
   loadedSubTabs[key] = true
 }
+
+const openDivergence = () => {
+  uni.navigateTo({
+    url: '/pages-sub/divergence/index?id=etf_macro'
+  })
+}
 </script>
 
 <template>
   <view class="space-y-3.5 tab-content-panel">
+    <!-- 同期涨跌分化快捷全景入口 -->
+    <view
+      class="flex items-center justify-between rounded-xl bg-gradient-to-r from-[#e5b352]/15 via-[#18202a] to-[#12181F] px-3 py-2 border border-[#e5b352]/30 active:opacity-80 transition-all cursor-pointer shadow-sm"
+      @tap="openDivergence"
+    >
+      <view class="flex items-center space-x-2">
+        <text class="text-sm">⚡</text>
+        <view>
+          <text class="text-xs font-bold text-[#f1efea] block">同期涨跌分化全景看板</text>
+          <text class="text-[10px] text-[#8d99a4]">多资产/行业同期走势分化与截面热度监测</text>
+        </view>
+      </view>
+      <view class="flex items-center space-x-0.5">
+        <text class="text-[10px] text-[#e5b352] font-medium">进入看板</text>
+        <text class="text-xs text-[#e5b352]">〉</text>
+      </view>
+    </view>
+
     <!-- 轻量级子分组切换条（使用原子类避免微信小程序 scoped 样式隔离失效） -->
     <view class="flex items-center justify-between border-b border-white/[0.08] pb-0.5">
-      <view class="flex items-center space-x-5">
+      <view class="flex items-center space-x-4">
         <view
           v-for="sub in marketSubTabs"
           :key="sub.key"
@@ -65,7 +94,7 @@ const switchSubTab = (key: MarketSubTabKey) => {
       <text class="text-[10px] font-mono text-[#64707c] pb-2">{{ lastUpdatedTime.slice(5, 16) }}</text>
     </view>
 
-    <!-- 子页：全球宏观（懒挂载 + v-show 保活，避免切换销毁重建卡片） -->
+    <!-- 子页 1：全球宏观（懒挂载 + v-show 保活） -->
     <view v-if="loadedSubTabs.global" v-show="marketSubTab === 'global'" class="space-y-3.5">
       <view
         v-if="vixQuote"
@@ -87,7 +116,7 @@ const switchSubTab = (key: MarketSubTabKey) => {
 
       <view class="space-y-2">
         <view class="flex items-center justify-between px-0.5">
-          <text class="text-sm font-bold text-[#f1efea]">全球宏观指标</text>
+          <text class="text-sm font-bold text-[#f1efea]">全球宏观核心指标</text>
           <text class="text-[11px] font-mono text-[#64707c]">{{ globalEconomicData.length }} 项</text>
         </view>
         <view class="grid grid-cols-2 gap-2">
@@ -102,11 +131,60 @@ const switchSubTab = (key: MarketSubTabKey) => {
           />
         </view>
       </view>
+
+      <view v-if="cryptoAgriList && cryptoAgriList.length" class="space-y-2 pt-1">
+        <text class="text-sm font-bold text-[#f1efea] px-0.5 block">流动性与大宗风向标</text>
+        <view class="grid grid-cols-2 gap-2">
+          <SectorCard
+            v-for="item in cryptoAgriList"
+            :key="item.symbol"
+            :name="item.name"
+            :change-percent="item.change_pct"
+            :price="item.price"
+          />
+        </view>
+      </view>
     </view>
 
-    <!-- 子页：日韩亚太 -->
-    <view v-if="loadedSubTabs.apac" v-show="marketSubTab === 'apac'" class="space-y-3.5">
+    <!-- 子页 2：港美中概 -->
+    <view v-if="loadedSubTabs.hk_us" v-show="marketSubTab === 'hk_us'" class="space-y-3.5">
       <view class="space-y-2">
+        <text class="text-sm font-bold text-[#f1efea] px-0.5 block">港股与离岸中国核心</text>
+        <view class="grid grid-cols-2 gap-2">
+          <SectorCard
+            v-for="item in (hkUsMacroList || []).slice(0, 5)"
+            :key="item.symbol"
+            :name="item.name"
+            :change-percent="item.change_pct"
+            :price="item.price"
+          />
+        </view>
+      </view>
+
+      <view class="space-y-2 pt-1">
+        <text class="text-sm font-bold text-[#f1efea] px-0.5 block">美股三大指数与基准利率</text>
+        <view class="grid grid-cols-2 gap-2">
+          <SectorCard
+            v-for="item in (hkUsMacroList || []).slice(5)"
+            :key="item.symbol"
+            :name="item.name"
+            :change-percent="item.change_pct"
+            :price="item.price"
+          />
+        </view>
+      </view>
+    </view>
+
+    <!-- 子页 3：亚太日韩台 -->
+    <view v-if="loadedSubTabs.apac" v-show="marketSubTab === 'apac'" class="space-y-3.5">
+      <view v-if="twMacroList && twMacroList.length" class="space-y-2">
+        <text class="text-sm font-bold text-[#f1efea] px-0.5 block">台湾半导体核心市场</text>
+        <view class="grid grid-cols-2 gap-2">
+          <SectorCard v-for="item in twMacroList" :key="item.symbol" :name="item.name" :change-percent="item.change_pct" :price="item.price" />
+        </view>
+      </view>
+
+      <view class="space-y-2 pt-1">
         <text class="text-sm font-bold text-[#f1efea] px-0.5 block">韩国综合与核心产业</text>
         <view class="grid grid-cols-2 gap-2">
           <SectorCard v-for="item in krMacroList" :key="item.symbol" :name="item.name" :change-percent="item.change_pct" :price="item.price" />
@@ -139,7 +217,7 @@ const switchSubTab = (key: MarketSubTabKey) => {
       </view>
     </view>
 
-    <!-- 子页：有色金属 -->
+    <!-- 子页 4：有色金属 -->
     <view v-if="loadedSubTabs.metals" v-show="marketSubTab === 'metals'" class="space-y-3.5">
       <view class="space-y-2">
         <text class="text-sm font-bold text-[#f1efea] px-0.5 block">金银贵金属</text>

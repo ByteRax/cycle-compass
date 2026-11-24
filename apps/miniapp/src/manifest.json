@@ -1,9 +1,9 @@
 {
-  "name": "周期罗盘-release",
-  "appid": "__UNI__B746FDE",
+  "name": "cycle-compass-miniapp-release",
+  "appid": "",
   "description": "周期罗盘 CycleCompass 微信小程序前端，基于 uni-app + Vue 3 + TypeScript + Tailwind CSS v4 + weapp-tailwindcss v5 + Compass UI",
-  "versionName": "1.0.2026112374",
-  "versionCode": "2026112374",
+  "versionName": "1.0.2026112502",
+  "versionCode": "2026112502",
   "transformPx": false,
   "app-plus": {
     "usingComponents": true,
@@ -89,7 +89,7 @@
   },
   "quickapp": {},
   "mp-weixin": {
-    "appid": "wx526d0e747cc6c067",
+    "appid": "",
     "setting": {
       "urlCheck": false,
       "minified": true,
@@ -101,7 +101,7 @@
       "ignoreUploadUnusedFiles": true
     },
     "usingComponents": true,
-    "projectname": "周期罗盘-release",
+    "projectname": "cycle-compass-miniapp-release",
     "darkmode": true,
     "themeLocation": "theme.json",
     "optimization": {

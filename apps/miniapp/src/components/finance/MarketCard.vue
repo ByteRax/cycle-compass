@@ -42,12 +42,25 @@ const formattedPercent = computed(() => {
   const sign = numericChangePercent.value > 0 ? '+' : ''
   return `${sign}${numericChangePercent.value.toFixed(2)}%`
 })
+const handleClick = () => {
+  emit('click')
+  let targetId = 'etf_macro'
+  const n = props.name || ''
+  if (n.includes('红利')) {
+    targetId = 'dividend_etf'
+  } else if (n.includes('A股') || n.includes('行业')) {
+    targetId = 'a_shares'
+  }
+  uni.navigateTo({
+    url: `/pages-sub/divergence/index?id=${targetId}`
+  })
+}
 </script>
 
 <template>
   <view
-    class="flex flex-col justify-between rounded-xl bg-[#12161b] px-3 py-2.5 border border-white/[0.08] active:bg-[#181e25] transition-colors"
-    @click="emit('click')"
+    class="flex flex-col justify-between rounded-xl bg-[#12161b] px-3 py-2.5 border border-white/[0.08] active:bg-[#181e25] transition-colors cursor-pointer"
+    @click="handleClick"
   >
     <view class="flex items-center justify-between gap-1">
       <text class="text-xs text-[#9aa5b1] font-medium truncate">{{ name }}</text>

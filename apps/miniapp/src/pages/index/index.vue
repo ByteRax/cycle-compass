@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, shallowRef, computed, onMounted } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted } from 'vue'
 import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
 import TabCycle from './components/TabCycle.vue'
 import TabMarkets from './components/TabMarkets.vue'
@@ -24,10 +24,13 @@ import {
   SEED_AI_EQUIPMENTS,
   SEED_AI_PRODUCTS,
   SEED_ASIA_MACRO,
+  SEED_CRYPTO_AGRI,
   SEED_CYCLE_OVERVIEW,
   SEED_DEMO_PORTFOLIO,
+  SEED_DIVIDEND_CORE,
   SEED_FX_LIST,
   SEED_GLOBAL_ECONOMIC_DATA,
+  SEED_HK_US_MACRO,
   SEED_INDUSTRIAL_METALS,
   SEED_JP_MACRO,
   SEED_JP_SECTORS,
@@ -35,8 +38,13 @@ import {
   SEED_KR_SECTORS,
   SEED_OTHER_METALS,
   SEED_PRECIOUS_METALS,
+  SEED_ROBOT_DRIVE,
+  SEED_ROBOT_SENSE,
   SEED_SECTOR_LIST,
-  SEED_STRATEGY_SIGNAL
+  SEED_SEMI_EQUIP,
+  SEED_SEMI_MATERIAL,
+  SEED_STRATEGY_SIGNAL,
+  SEED_TW_MACRO
 } from '@/data/seeds'
 import { BOTTOM_TAB_KEYS, evaluateTabSwipe, type BottomTabKey } from '@/utils/swipe'
 import { usePortfolio } from '@/composables/usePortfolio'
@@ -104,6 +112,9 @@ const loadedTabs = ref<TabState>({
 // ==================== 各板块响应式状态（离线种子已抽离至 @/data/seeds，保留 shallowRef 浅响应式） ====================
 const globalEconomicData = shallowRef<MarketQuote[]>([...SEED_GLOBAL_ECONOMIC_DATA])
 const sectorList = shallowRef<IndustryMetric[]>([...SEED_SECTOR_LIST])
+const hkUsMacroList = shallowRef([...SEED_HK_US_MACRO])
+const twMacroList = shallowRef([...SEED_TW_MACRO])
+const cryptoAgriList = shallowRef([...SEED_CRYPTO_AGRI])
 const krMacroList = shallowRef([...SEED_KR_MACRO])
 const krSectorList = shallowRef([...SEED_KR_SECTORS])
 const jpMacroList = shallowRef([...SEED_JP_MACRO])
@@ -115,6 +126,11 @@ const industrialMetals = shallowRef([...SEED_INDUSTRIAL_METALS])
 const otherMetals = shallowRef([...SEED_OTHER_METALS])
 const aiProducts = shallowRef([...SEED_AI_PRODUCTS])
 const aiEquipments = shallowRef([...SEED_AI_EQUIPMENTS])
+const robotDriveList = shallowRef([...SEED_ROBOT_DRIVE])
+const robotSenseList = shallowRef([...SEED_ROBOT_SENSE])
+const semiEquipList = shallowRef([...SEED_SEMI_EQUIP])
+const semiMaterialList = shallowRef([...SEED_SEMI_MATERIAL])
+const dividendCoreList = shallowRef([...SEED_DIVIDEND_CORE])
 const cycleData = shallowRef<CycleOverview>({ ...SEED_CYCLE_OVERVIEW })
 const strategyData = shallowRef<CombinedSignal>({ ...SEED_STRATEGY_SIGNAL })
 const portfolioData = ref<IPortfolioOverview>({ ...SEED_DEMO_PORTFOLIO })
@@ -180,6 +196,18 @@ const loadMarketsTabData = async (force = false): Promise<boolean> => {
     if (mRes?.data?.length) {
       const quoteMap = new Map(mRes.data.map(q => [q.symbol.toUpperCase(), q]))
       globalEconomicData.value = globalEconomicData.value.map(item => quoteMap.get(item.symbol.toUpperCase()) ?? item)
+      hkUsMacroList.value = hkUsMacroList.value.map(item => {
+        const q = quoteMap.get(item.symbol.toUpperCase())
+        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+      })
+      twMacroList.value = twMacroList.value.map(item => {
+        const q = quoteMap.get(item.symbol.toUpperCase())
+        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+      })
+      cryptoAgriList.value = cryptoAgriList.value.map(item => {
+        const q = quoteMap.get(item.symbol.toUpperCase())
+        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+      })
       krMacroList.value = krMacroList.value.map(item => {
         const q = quoteMap.get(item.symbol.toUpperCase())
         return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
@@ -195,6 +223,16 @@ const loadMarketsTabData = async (force = false): Promise<boolean> => {
       fxList.value = fxList.value.map(item => {
         const q = quoteMap.get(item.symbol.toUpperCase())
         return q ? { ...item, price: q.price.toFixed(2), change_pct: q.change_pct } : item
+      })
+      preciousMetals.value = preciousMetals.value.map(item => {
+        const sym = item.name === '黄金' ? 'GOLD_OZ' : item.name === '白银' ? 'SILVER_OZ' : null
+        const q = sym ? quoteMap.get(sym) : null
+        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+      })
+      industrialMetals.value = industrialMetals.value.map(item => {
+        const sym = item.name === '铜' ? 'COPPER_HG' : null
+        const q = sym ? quoteMap.get(sym) : null
+        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
       })
       return true
     }
@@ -290,10 +328,23 @@ onLoad(() => {
   loadUserPortfolio()
 })
 
+let autoPollTimer: any = null
+
 onMounted(() => {
   // 兜底保障
   if (!loadedTabs.value[activeTab.value]) {
     ensureTabData(activeTab.value)
+  }
+  // 挂载自动刷新轮询 (30秒静默同步活跃标签页数据)
+  autoPollTimer = setInterval(() => {
+    ensureTabData(activeTab.value, true)
+  }, 30_000)
+})
+
+onUnmounted(() => {
+  if (autoPollTimer) {
+    clearInterval(autoPollTimer)
+    autoPollTimer = null
   }
 })
 
@@ -371,6 +422,9 @@ const onTouchEnd = (e: any) => {
         <TabMarkets
           :global-economic-data="globalEconomicData"
           :vix-quote="vixQuote"
+          :hk-us-macro-list="hkUsMacroList"
+          :tw-macro-list="twMacroList"
+          :crypto-agri-list="cryptoAgriList"
           :kr-macro-list="krMacroList"
           :kr-sector-list="krSectorList"
           :jp-macro-list="jpMacroList"
@@ -390,6 +444,11 @@ const onTouchEnd = (e: any) => {
           :sector-list="sectorList"
           :ai-products="aiProducts"
           :ai-equipments="aiEquipments"
+          :robot-drive-list="robotDriveList"
+          :robot-sense-list="robotSenseList"
+          :semi-equip-list="semiEquipList"
+          :semi-material-list="semiMaterialList"
+          :dividend-core-list="dividendCoreList"
           :last-updated-time="lastUpdatedTime"
         />
       </view>

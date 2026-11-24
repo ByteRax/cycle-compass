@@ -10,6 +10,7 @@ import httpx
 import pandas as pd
 
 from packages.market_data.base import BaseDataProvider
+from packages.market_data.cross_asset_fetcher import CROSS_ASSET_MAPPING, CrossAssetFetcher
 from packages.market_data.models import (
     DataQualityStatus,
     DataSourceMeta,
@@ -34,6 +35,7 @@ class OnlineDataProvider(BaseDataProvider):
         self.timeout = timeout
         self.cache_ttl = cache_ttl
         self.fallback = fallback_provider or SeedDataProvider()
+        self.cross_asset = CrossAssetFetcher(cache_ttl=max(cache_ttl, 10.0))
         self._client: Optional[httpx.AsyncClient] = None
         self._cache: dict[str, tuple[float, MarketQuote]] = {}
         self._lock = asyncio.Lock()
@@ -174,18 +176,36 @@ class OnlineDataProvider(BaseDataProvider):
             if not still_missing:
                 return [results[s] for s in norm_symbols if s in results]
 
-            # 拆分：A股代码合并为单个 HTTP 请求，其余走 fallback
+            # 拆分：跨资产走 Yahoo Finance，A股代码走腾讯 HTTP，其余走 fallback
+            cross_asset_symbols: list[str] = []
             tencent_codes_map: dict[str, str] = {}
             fallback_needed: list[str] = []
 
             for sym in still_missing:
-                t_code = self._symbol_to_tencent_code(sym)
-                if t_code:
-                    tencent_codes_map[t_code] = sym
+                if sym in CROSS_ASSET_MAPPING:
+                    cross_asset_symbols.append(sym)
                 else:
-                    fallback_needed.append(sym)
+                    t_code = self._symbol_to_tencent_code(sym)
+                    if t_code:
+                        tencent_codes_map[t_code] = sym
+                    else:
+                        fallback_needed.append(sym)
 
-            # 3. 批量打向腾讯源站
+            # 3.1 跨资产在线拉取（原油、黄金、美债、VIX、日韩指数等）
+            if cross_asset_symbols:
+                try:
+                    ca_quotes = await self.cross_asset.get_quotes_batch(cross_asset_symbols)
+                    for sym, quote in ca_quotes.items():
+                        self._cache[sym] = (now, quote)
+                        results[sym] = quote
+                except Exception as ex:
+                    pass
+
+                for sym in cross_asset_symbols:
+                    if sym not in results:
+                        fallback_needed.append(sym)
+
+            # 3.2 批量打向腾讯源站（A股指数等）
             if tencent_codes_map:
                 start_t = time.perf_counter()
                 client = await self._get_client()
@@ -221,7 +241,34 @@ class OnlineDataProvider(BaseDataProvider):
         return await self.fallback.get_macro_indicators()
 
     async def get_industry_metrics(self) -> list[IndustryMetric]:
-        return await self.fallback.get_industry_metrics()
+        metrics = await self.fallback.get_industry_metrics()
+        try:
+            loop = asyncio.get_running_loop()
+            proxies = await loop.run_in_executor(None, self.cross_asset.fetch_sector_proxies_sync)
+            if proxies:
+                updated = []
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                for m in metrics:
+                    if m.sector_id in proxies:
+                        _, pct = proxies[m.sector_id]
+                        new_m = m.model_copy(update={
+                            "price_change_pct": pct,
+                            "price_index": round(100.0 + pct, 2),
+                            "meta": DataSourceMeta(
+                                source_name="Global Proxy Realtime",
+                                symbol=m.sector_id,
+                                as_of=now_str,
+                                status=DataQualityStatus.OK,
+                                latency_ms=100.0,
+                            )
+                        })
+                        updated.append(new_m)
+                    else:
+                        updated.append(m)
+                return updated
+        except Exception as e:
+            logger.debug("Failed online industry metric calibration: %s", e)
+        return metrics
 
     async def get_historical_klines(self, symbol: str, days: int = 1500) -> pd.DataFrame:
         return await self.fallback.get_historical_klines(symbol, days)

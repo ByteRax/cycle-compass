@@ -14,8 +14,9 @@ router = APIRouter(prefix="/markets", tags=["Markets"])
 DEFAULT_WATCHLIST = [
     "930955", "399673", "000300", "000905", "000688",
     "BRENT", "VIX", "DXY", "US20Y", "GOLD_OZ", "ICNYXAU", "SILVER_OZ", "COPPER_HG", "NATGAS",
-    "SPX", "NDX", "N225", "USDCNH", "GOLD", "COPPER", "CN10Y", "US10Y",
-    "KOSPI", "KOSDAQ", "TOPIX", "VN_INDEX", "SENSEX",
+    "HSI", "HSTECH", "HSCE", "FXI", "KWEB", "SPX", "NDX", "DJI", "US10Y", "CN10Y",
+    "TWII", "TSMC", "N225", "TOPIX", "KOSPI", "KOSDAQ", "VN_INDEX", "SENSEX",
+    "BTC", "ETH", "SOYBEAN", "GOLD", "COPPER", "USDCNH",
     "CNYKRW", "CNYJPY", "USDKRW", "USDJPY",
 ]
 

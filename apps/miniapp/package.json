@@ -1,7 +1,7 @@
 {
   "name": "cycle-compass-miniapp",
   "type": "module",
-  "version": "1.0.2026112374",
+  "version": "1.0.2026112502",
   "packageManager": "pnpm@10.25.0",
   "description": "周期罗盘 CycleCompass 微信小程序前端，基于 uni-app + Vue 3 + TypeScript + Tailwind CSS v4 + weapp-tailwindcss v5 + Compass UI",
   "author": "CycleCompass Team",
@@ -108,7 +108,7 @@
       "prettier --write"
     ]
   },
-  "versionCode": "2026112374",
-  "gitHash": "c8b9f81",
-  "buildDate": "2026-11-23 11:26:27"
+  "versionCode": "2026112502",
+  "gitHash": "2c0bb24",
+  "buildDate": "2026-11-25 00:19:02"
 }

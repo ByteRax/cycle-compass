@@ -54,32 +54,55 @@ const formattedPercent = computed(() => {
   const sign = props.changePercent > 0 ? '+' : ''
   return `${sign}${props.changePercent.toFixed(2)}%`
 })
+const handleClick = () => {
+  emit('click')
+  let targetId = 'a_shares'
+  const n = props.name || ''
+  if (n.includes('红利') || n.includes('煤炭') || n.includes('水电')) {
+    targetId = 'dividend_etf'
+  } else if (n.includes('ETF') || n.includes('300') || n.includes('500') || n.includes('恒生') || n.includes('标普') || n.includes('纳斯达克')) {
+    targetId = 'etf_macro'
+  } else {
+    targetId = 'a_shares'
+  }
+  uni.navigateTo({
+    url: `/pages-sub/divergence/index?id=${targetId}`
+  })
+}
 </script>
 
 <template>
   <view
-    class="flex items-center justify-between rounded-xl bg-[#12161b] px-3 py-2.5 border border-white/[0.08] active:bg-[#181e25] transition-colors"
-    @click="emit('click')"
+    class="flex flex-col justify-between rounded-xl bg-[#12161b] px-3 py-2.5 border border-white/[0.08] active:bg-[#181e25] transition-colors gap-1.5 cursor-pointer"
+    @click="handleClick"
   >
-    <view class="flex items-center space-x-2 min-w-0 pr-1">
-      <!-- 语义色竖线替代 emoji 图标 -->
-      <view
-        class="w-0.5 h-4 rounded-full shrink-0"
-        :class="[isUp ? 'bg-[#f05a50]' : isDown ? 'bg-[#2ad1a3]' : 'bg-[#64707c]']"
-      />
-      <view class="min-w-0">
-        <text class="text-[13px] font-semibold text-[#f1efea] block truncate">{{ name }}</text>
-        <text v-if="stage" class="text-[10px] text-[#64707c] block truncate">{{ stage }}</text>
+    <!-- 第一行：行业名称 + 周期阶段 -->
+    <view class="flex items-center justify-between min-w-0">
+      <view class="flex items-center space-x-1.5 min-w-0 pr-1">
+        <!-- 语义色指示条 -->
+        <view
+          class="w-1 h-3 rounded-full shrink-0"
+          :class="[isUp ? 'bg-[#f05a50]' : isDown ? 'bg-[#2ad1a3]' : 'bg-[#64707c]']"
+        />
+        <text class="text-[13px] font-semibold text-[#f1efea] truncate">{{ name }}</text>
       </view>
+      <text
+        v-if="stage"
+        class="text-[10px] text-[#8d99a4] bg-white/[0.06] px-1.5 py-0.5 rounded shrink-0 font-medium"
+      >
+        {{ stage }}
+      </text>
     </view>
 
-    <view class="inline-flex items-center space-x-1.5 shrink-0">
+    <!-- 第二行：景气点位 + 涨跌幅 -->
+    <view class="flex items-baseline justify-between min-w-0 pt-0.5">
       <text
         v-if="displayPrice"
-        class="font-mono text-xs font-semibold text-[#f1efea] tracking-tight cc-tabular"
+        class="font-mono text-sm font-bold text-[#f1efea] tracking-tight cc-tabular"
       >
         {{ displayPrice }}
       </text>
+      <view v-else />
       <text
         class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-bold font-mono cc-tabular shrink-0"
         :class="[
