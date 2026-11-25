@@ -105,3 +105,52 @@
 .tab-content-panel {
   animation: tabFadeIn 0.18s ease-out;
 }
+
+/* 金融研究模块专属暖纸浅色阅读主题（不影响默认 :root 暗色与既有 4 Tab） */
+.cc-finance-light {
+  --cc-bg-page: #F4F3EF;
+  --cc-bg-card: #FFFFFF;
+  --cc-bg-elevated: #EDECE6;
+  --cc-text-primary: #22292E;
+  --cc-text-secondary: #515F6A;
+  --cc-text-muted: #626F77;
+  --cc-brand-primary: #8A641F;
+  --cc-up: #B93842;
+  --cc-up-subtle: rgba(185, 56, 66, 0.12);
+  --cc-down: #14745E;
+  --cc-down-subtle: rgba(20, 116, 94, 0.12);
+  --cc-neutral: #64707C;
+  --cc-neutral-subtle: rgba(100, 112, 124, 0.12);
+  --cc-border: #DCDDD8;
+  --cc-border-strong: rgba(34, 41, 46, 0.18);
+  --cc-border-focus: #8A641F;
+
+  background-color: var(--cc-bg-page);
+  color: var(--cc-text-primary);
+}
+
+/* 金融作用域通用语义类 */
+.cc-panel {
+  background-color: var(--cc-bg-card);
+  border: 1px solid var(--cc-border);
+}
+
+.cc-elevated {
+  background-color: var(--cc-bg-elevated);
+}
+
+.cc-text-primary {
+  color: var(--cc-text-primary);
+}
+
+.cc-text-secondary {
+  color: var(--cc-text-secondary);
+}
+
+.cc-text-muted {
+  color: var(--cc-text-muted);
+}
+
+.cc-brand {
+  color: var(--cc-brand-primary);
+}

@@ -1,9 +1,9 @@
 <script lang="ts" setup>
+import type { MarketQuote } from '@/api/cycle'
+import type { FxQuoteItem, PriceItem, SymbolPriceItem } from '@/data/seeds'
 import { reactive, ref } from 'vue'
 import MarketCard from '@/components/finance/MarketCard.vue'
 import SectorCard from '@/components/finance/SectorCard.vue'
-import type { MarketQuote } from '@/api/cycle'
-import type { FxQuoteItem, PriceItem, SymbolPriceItem } from '@/data/seeds'
 
 defineOptions({
   options: {
@@ -46,34 +46,79 @@ const loadedSubTabs = reactive<Record<MarketSubTabKey, boolean>>({
   metals: false
 })
 
-const switchSubTab = (key: MarketSubTabKey) => {
+function switchSubTab (key: MarketSubTabKey) {
   marketSubTab.value = key
   loadedSubTabs[key] = true
 }
 
-const openDivergence = () => {
+function openDivergence () {
   uni.navigateTo({
     url: '/pages-sub/divergence/index?id=etf_macro'
+  })
+}
+
+function openFinanceOverview () {
+  uni.navigateTo({
+    url: '/pages-sub/finance/index'
   })
 }
 </script>
 
 <template>
   <view class="space-y-3.5 tab-content-panel">
-    <!-- 同期涨跌分化快捷全景入口 -->
+    <!-- 金融资产核心入口卡片（设计稿 01） -->
     <view
-      class="flex items-center justify-between rounded-xl bg-gradient-to-r from-[#e5b352]/15 via-[#18202a] to-[#12181F] px-3 py-2 border border-[#e5b352]/30 active:opacity-80 transition-all cursor-pointer shadow-sm"
+      class="rounded-2xl bg-[#12161b] border border-[#e5b352]/30 p-3.5 shadow-sm"
+    >
+      <view class="flex items-start justify-between">
+        <view>
+          <text class="text-[19px] font-bold text-[#e5b352] tracking-tight block">金融资产</text>
+          <text class="text-[12px] text-[#a9b3bd] mt-0.5 block">跨市场趋势 · 统一强弱比较</text>
+        </view>
+        <view class="w-8 h-8 rounded-full bg-[#e5b352]/14 border border-[#e5b352]/40 flex items-center justify-center shrink-0">
+          <view class="w-4 h-4 rounded-full border-2 border-[#e5b352] flex items-center justify-center">
+            <view class="w-1.5 h-1.5 rounded-full bg-[#e5b352]" />
+          </view>
+        </view>
+      </view>
+
+      <view class="grid grid-cols-3 gap-2 mt-3 pt-2.5 border-t border-white/[0.08]">
+        <view>
+          <text class="text-[12px] font-bold text-[#e5b352] block">七档温度</text>
+          <text class="text-[11px] text-[#8d99a4] mt-0.5 block">趋势识别</text>
+        </view>
+        <view>
+          <text class="text-[12px] font-bold text-[#e5b352] block">七类图表</text>
+          <text class="text-[11px] text-[#8d99a4] mt-0.5 block">深度研究</text>
+        </view>
+        <view>
+          <text class="text-[12px] font-bold text-[#e5b352] block">每日快照</text>
+          <text class="text-[11px] text-[#8d99a4] mt-0.5 block">可追溯数据</text>
+        </view>
+      </view>
+
+      <view
+        class="mt-3 min-h-[44px] rounded-xl bg-[#e5b352] flex items-center justify-center active:opacity-85 transition-opacity cursor-pointer"
+        @tap="openFinanceOverview"
+      >
+        <text class="text-[14px] font-bold text-[#090c0f]">进入金融资产全景 →</text>
+      </view>
+    </view>
+
+    <!-- 同期涨跌分化快捷全景次入口 -->
+    <view
+      class="flex items-center justify-between rounded-xl bg-[#12161b] px-3 py-2.5 border border-white/[0.08] active:opacity-80 transition-all cursor-pointer min-h-[44px]"
       @tap="openDivergence"
     >
       <view class="flex items-center space-x-2">
-        <text class="text-sm">⚡</text>
+        <text class="text-xs font-bold text-[#e5b352]">⚡</text>
         <view>
           <text class="text-xs font-bold text-[#f1efea] block">同期涨跌分化全景看板</text>
-          <text class="text-[10px] text-[#8d99a4]">多资产/行业同期走势分化与截面热度监测</text>
+          <text class="text-[11px] text-[#8d99a4]">多资产/行业同期走势分化与截面热度监测</text>
         </view>
       </view>
-      <view class="flex items-center space-x-0.5">
-        <text class="text-[10px] text-[#e5b352] font-medium">进入看板</text>
+      <view class="flex items-center space-x-0.5 shrink-0">
+        <text class="text-[11px] text-[#e5b352] font-medium">趋势研究</text>
         <text class="text-xs text-[#e5b352]">〉</text>
       </view>
     </view>

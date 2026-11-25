@@ -1,123 +1,318 @@
 <script lang="ts" setup>
-import { ref } from 'vue'
+import type { AnnualTrendResponse } from '@/api/types/trend'
+import type { TrendLineSeries } from '@/components/trend/TrendLineCanvas.vue'
+import { computed, ref, watch } from 'vue'
+import { getTrendAnnual } from '@/api/trend'
+import TrendLineCanvas from '@/components/trend/TrendLineCanvas.vue'
+import { useFinanceStore } from '@/stores/finance'
+import { deterministicAssetColor } from '@/utils/chartGeometry'
 
-interface Props {
-  datasetTitle: string
-}
-
-withDefaults(defineProps<Props>(), {
-  datasetTitle: 'A股'
+const props = withDefaults(defineProps<{
+  assetId: string
+  snapshotId?: string
+  range?: string
+  currency?: string
+  scopeId?: string
+  benchmarkId?: string
+}>(), {
+  snapshotId: '',
+  range: '1Y',
+  currency: 'CNY',
+  scopeId: '',
+  benchmarkId: ''
 })
 
-const activeYear = ref<string>('2026')
+const financeStore = useFinanceStore()
+const isDark = computed(() => financeStore.isDarkEffective)
+const isCnRedUp = computed(() => financeStore.colorScheme === 'cn_red_up')
 
-const years = [
-  { year: '2026', color: '#e5b352', label: '2026 (当前)' },
-  { year: '2025', color: '#ff736a', label: '2025' },
-  { year: '2024', color: '#38bdf8', label: '2024' },
-  { year: '2023', color: '#a78bfa', label: '2023' },
-  { year: '2022', color: '#64707c', label: '2022' }
-]
+const loading = ref(false)
+const errorMsg = ref('')
+const annualData = ref<AnnualTrendResponse | null>(null)
+const focusedYear = ref<number | null>(null)
+const hiddenYears = ref<number[]>([])
 
-// 12 个月份的历史上涨胜率
-const monthStats = [
-  { month: '1月', winRate: 48, avgReturn: 0.8 },
-  { month: '2月', winRate: 75, avgReturn: 3.2, highlight: true }, // 春季躁动
-  { month: '3月', winRate: 52, avgReturn: 0.5 },
-  { month: '4月', winRate: 40, avgReturn: -1.2 }, // 四月决断
-  { month: '5月', winRate: 58, avgReturn: 1.4 },
-  { month: '6月', winRate: 45, avgReturn: -0.6 },
-  { month: '7月', winRate: 62, avgReturn: 2.1 }, // 七翻身
-  { month: '8月', winRate: 42, avgReturn: -1.0 },
-  { month: '9月', winRate: 38, avgReturn: -1.5 },
-  { month: '10月', winRate: 68, avgReturn: 1.9 }, // 金九银十
-  { month: '11月', winRate: 65, avgReturn: 1.8, current: true }, // 当前月
-  { month: '12月', winRate: 55, avgReturn: 0.9 }
-]
+function formatPct(val: number | null | undefined): string {
+  if (val === null || val === undefined || !Number.isFinite(val))
+    return '—'
+  const sign = val > 0
+? '+'
+: ''
+  return `${sign}${val.toFixed(2)}%`
+}
+
+function getGainColor(val: number | null | undefined): string {
+  if (val === null || val === undefined || !Number.isFinite(val))
+    return isDark.value ? '#8D99A4' : '#626F77'
+  if (val === 0)
+    return isDark.value ? '#F1EFEA' : '#22292E'
+  const isUp = val > 0
+  if (isCnRedUp.value) {
+    return isUp
+? (isDark.value ? '#FF736A' : '#B93842')
+: (isDark.value ? '#2EC4B6' : '#14745E')
+}
+  return isUp
+? (isDark.value ? '#2EC4B6' : '#14745E')
+: (isDark.value ? '#FF736A' : '#B93842')
+}
+
+async function fetchAnnualData() {
+  if (!props.assetId)
+    return
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    const res = await getTrendAnnual(props.assetId, {
+      currency: props.currency || undefined,
+      snapshot_id: props.snapshotId || undefined
+    })
+    annualData.value = res.data ?? null
+    focusedYear.value = null
+    hiddenYears.value = []
+  }
+  catch (err: any) {
+    errorMsg.value = err?.message || '年度同期走势加载失败'
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+watch(
+  () => [props.assetId, props.snapshotId, props.currency],
+  () => {
+    fetchAnnualData()
+  },
+  { immediate: true }
+)
+
+const weekNumbers = computed<number[]>(() => {
+  const years = annualData.value?.years || []
+  const set = new Set<number>()
+  for (const y of years) {
+    for (const w of y.weekly_returns)
+      set.add(w.week)
+  }
+  return Array.from(set).sort((a, b) => a - b)
+})
+
+const weekLabels = computed(() => weekNumbers.value.map(w => `W${w}`))
+
+function getYearColor(year: number, isCurrent: boolean, idx: number): string {
+  if (isCurrent)
+    return isDark.value ? '#E5B352' : '#8A641F'
+  return deterministicAssetColor(String(year), idx + 1)
+}
+
+const chartSeries = computed<TrendLineSeries[]>(() => {
+  const years = annualData.value?.years || []
+  const weeks = weekNumbers.value
+  if (!years.length || !weeks.length)
+    return []
+
+  return years.map((y, idx) => {
+    const map = new Map<number, number | null>()
+    for (const pt of y.weekly_returns)
+      map.set(pt.week, pt.return_pct)
+
+    const isFocused = focusedYear.value === y.year
+    const isDimmed = focusedYear.value !== null
+? !isFocused
+: (!y.is_current && years.length > 4)
+
+    return {
+      id: String(y.year),
+      name: y.is_current
+? `${y.year}(今)`
+: String(y.year),
+      color: getYearColor(y.year, y.is_current, idx),
+      values: weeks.map(w => map.get(w) ?? null),
+      highlighted: y.is_current || isFocused,
+      dimmed: isDimmed,
+      hidden: hiddenYears.value.includes(y.year),
+      lineWidth: y.is_current || isFocused
+? 2.6
+: 1.5
+    }
+  })
+})
+
+function toggleYearFocus(year: number) {
+  if (focusedYear.value === year)
+    focusedYear.value = null
+  else
+    focusedYear.value = year
+}
+
+const sortedYears = computed(() => {
+  return [
+...(annualData.value?.years || [])
+].sort((a, b) => b.year - a.year)
+})
 </script>
 
 <template>
-  <view class="w-full">
-    <!-- 标题与年度切换 -->
-    <view class="mb-3 flex items-center justify-between">
+  <view class="w-full space-y-3">
+    <!-- 标题栏 -->
+    <view class="flex items-start justify-between gap-2">
       <view>
-        <text class="text-xl font-black text-[#f1efea] tracking-tight block">{{ datasetTitle }} · 年度价格走势</text>
-        <text class="text-[10px] font-mono text-[#8d99a4] mt-0.5 block">历年 1~12 月季节性归一化对比</text>
-      </view>
-      <!-- 年份高亮徽章 -->
-      <view class="flex items-center space-x-1">
-        <text
-          v-for="y in years"
-          :key="y.year"
-          class="px-1.5 py-0.5 rounded text-[9px] font-mono cursor-pointer transition-all"
-          :class="activeYear === y.year ? 'bg-[#e5b352] text-[#090C0F] font-bold' : 'text-[#8d99a4] bg-white/[0.04]'"
-          @tap="activeYear = y.year"
-        >
-          {{ y.year }}
+        <text class="text-[18px] font-bold block" :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+          {{ annualData?.asset_name || assetId }} · 年度同期走势
+        </text>
+        <text class="text-[11px] font-mono mt-0.5 block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          {{ annualData?.snapshot?.as_of || '—' }} · 自然年周次归一化对比（第 {{ annualData?.cutoff_week ?? '—' }} 周）
         </text>
       </view>
     </view>
 
-    <!-- 年度走势多曲线叠加主图 (SVG) -->
-    <view class="rounded-2xl bg-[#12181F] border border-white/[0.08] p-3 shadow-xl mb-3">
-      <view class="flex items-center justify-between pb-2 border-b border-white/[0.05] text-[10px] font-mono">
-        <text class="text-[#8d99a4]">累计收益率对比 (1月基准为0%)</text>
-        <text class="text-[#e5b352] font-bold">11月当前收益: +12.4%</text>
+    <!-- 核心统计指标卡 -->
+    <view v-if="annualData" class="grid grid-cols-3 gap-2">
+      <view
+        class="rounded-xl border p-2.5"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+      >
+        <text class="text-[11px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          今年累计
+        </text>
+        <text
+          class="text-[15px] font-bold font-mono tabular-nums mt-0.5 block"
+          :style="{ color: getGainColor(annualData.stats.current_year_return_pct) }"
+        >
+          {{ formatPct(annualData.stats.current_year_return_pct) }}
+        </text>
       </view>
 
-      <view class="w-full relative mt-2">
-        <svg viewBox="0 0 660 220" class="w-full h-auto block" preserveAspectRatio="xMidYMid meet">
-          <!-- 基准线 0% -->
-          <line x1="40" y1="130" x2="630" y2="130" stroke="rgba(255,255,255,0.2)" stroke-dasharray="3,3" />
-          <text x="34" y="133.5" fill="#8d99a4" font-size="9" text-anchor="end" font-family="monospace">0%</text>
+      <view
+        class="rounded-xl border p-2.5"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+      >
+        <text class="text-[11px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          往年同周中位
+        </text>
+        <text
+          class="text-[15px] font-bold font-mono tabular-nums mt-0.5 block"
+          :style="{ color: getGainColor(annualData.stats.same_week_median_pct) }"
+        >
+          {{ formatPct(annualData.stats.same_week_median_pct) }}
+        </text>
+      </view>
 
-          <!-- 2022 灰线 -->
-          <path d="M 50 130 Q 150 160, 250 145 T 450 170 T 630 180" fill="none" stroke="#64707c" stroke-width="1.2" opacity="0.6" />
-          <!-- 2023 紫线 -->
-          <path d="M 50 130 Q 150 110, 250 120 T 450 150 T 630 155" fill="none" stroke="#a78bfa" stroke-width="1.4" opacity="0.7" />
-          <!-- 2024 蓝线 -->
-          <path d="M 50 130 Q 150 140, 250 135 T 450 130 T 630 110" fill="none" stroke="#38bdf8" stroke-width="1.5" opacity="0.8" />
-          <!-- 2025 珊瑚红线 -->
-          <path d="M 50 130 Q 150 100, 250 80 T 450 95 T 630 75" fill="none" stroke="#ff736a" stroke-width="1.8" opacity="0.85" />
-          <!-- 2026 金色加粗实线 (进行中到11月) -->
-          <path d="M 50 130 Q 150 90, 250 70 T 450 65 L 575 55" fill="none" stroke="#e5b352" stroke-width="3" stroke-linecap="round" />
-          <circle cx="575" cy="55" r="4" fill="#e5b352" />
-          <text x="582" y="58" fill="#e5b352" font-size="10" font-family="monospace" font-weight="bold">+12.4%</text>
-
-          <!-- X 轴月份刻度 -->
-          <text v-for="m in 12" :key="m" :x="50 + (m - 1) * 52" y="210" fill="#64707c" font-size="9" text-anchor="middle" font-family="monospace">
-            {{ m }}月
-          </text>
-        </svg>
+      <view
+        class="rounded-xl border p-2.5"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+      >
+        <text class="text-[11px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          同周历史排名
+        </text>
+        <text class="text-[15px] font-bold font-mono tabular-nums mt-0.5 block" :class="isDark ? 'text-[#E5B352]' : 'text-[#8A641F]'">
+          {{ annualData.stats.current_rank ?? '—' }} / {{ annualData.stats.sample_count }}
+        </text>
       </view>
     </view>
 
-    <!-- 季节性胜率直方图卡片 -->
-    <view class="rounded-2xl bg-[#12181F] border border-white/[0.08] p-3 shadow-xl">
-      <view class="flex items-center justify-between pb-2 mb-2 border-b border-white/[0.05]">
-        <text class="text-xs font-bold text-[#f1efea]">近 10 年各月份历史上涨概率</text>
-        <text class="text-[10px] font-mono text-[#8d99a4]">季节性规律分析</text>
-      </view>
-      <view class="grid grid-cols-12 gap-1 items-end h-20 pt-2">
+    <!-- 年份对比图卡片 -->
+    <view
+      class="rounded-2xl border p-3"
+      :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+    >
+      <!-- 年份高亮图例 -->
+      <view v-if="sortedYears.length" class="flex flex-wrap items-center gap-1.5 pb-2 mb-2 border-b" :class="isDark ? 'border-[#29313A]' : 'border-[#DCDDD8]'">
         <view
-          v-for="st in monthStats"
-          :key="st.month"
-          class="flex flex-col items-center justify-end h-full"
+          v-for="(y, idx) in sortedYears"
+          :key="y.year"
+          class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-mono transition-all"
+          :class="focusedYear === y.year || (focusedYear === null && y.is_current)
+            ? (isDark ? 'bg-[#E5B352]/15 border-[#E5B352]/50 text-[#F1EFEA] font-bold' : 'bg-[#8A641F]/12 border-[#8A641F]/50 text-[#22292E] font-bold')
+            : (isDark ? 'border-[#29313A] text-[#8D99A4]' : 'border-[#DCDDD8] text-[#515F6A]')"
+          @tap="toggleYearFocus(y.year)"
         >
-          <text class="text-[8px] font-mono mb-1" :class="st.current ? 'text-[#e5b352] font-bold' : st.winRate >= 60 ? 'text-[#ff736a]' : 'text-[#64707c]'">
-            {{ st.winRate }}%
+          <view class="w-2 h-2 rounded-full" :style="{ backgroundColor: getYearColor(y.year, y.is_current, idx) }" />
+          <text>{{ y.year }}{{ y.is_current ? '(今)' : '' }}</text>
+        </view>
+      </view>
+
+      <view v-if="loading" class="h-[220px] flex items-center justify-center">
+        <text class="text-[12px]" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
+          正在加载年度同期走势...
+        </text>
+      </view>
+
+      <view v-else-if="errorMsg" class="h-[220px] flex flex-col items-center justify-center gap-2">
+        <text class="text-[12px] text-center" :class="isDark ? 'text-[#FF736A]' : 'text-[#B93842]'">
+          {{ errorMsg }}
+        </text>
+        <text
+          class="px-3 py-1 rounded-lg text-[11px] font-bold"
+          :class="isDark ? 'bg-[#E5B352] text-[#090C0F]' : 'bg-[#8A641F] text-white'"
+          @tap="fetchAnnualData"
+        >
+          重新加载
+        </text>
+      </view>
+
+      <view v-else-if="!weekLabels.length" class="h-[220px] flex items-center justify-center">
+        <text class="text-[12px]" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
+          暂无年度周频对比数据
+        </text>
+      </view>
+
+      <TrendLineCanvas
+        v-else
+        canvas-id="annualTrendCanvas"
+        :dates="weekLabels"
+        :series="chartSeries"
+        :height="220"
+        value-format="pct"
+        :show-zero-line="true"
+        :max-x-labels="6"
+      />
+    </view>
+
+    <!-- 同周 / 全年收益明细表 -->
+    <view
+      v-if="sortedYears.length"
+      class="rounded-2xl border p-3"
+      :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+    >
+      <view class="flex items-center justify-between pb-2 mb-1 border-b" :class="isDark ? 'border-[#29313A]' : 'border-[#DCDDD8]'">
+        <text class="text-[13px] font-bold" :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+          历年同周与全年收益明细
+        </text>
+        <text v-if="annualData?.stats.up_ratio_pct !== null && annualData?.stats.up_ratio_pct !== undefined" class="text-[11px] font-mono" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          同周正收益占比 {{ annualData.stats.up_ratio_pct.toFixed(0) }}%
+        </text>
+      </view>
+
+      <view class="flex items-center text-[11px] py-1.5" :class="isDark ? 'text-[#64707C]' : 'text-[#626F77]'">
+        <text class="w-20">年份</text>
+        <text class="flex-1">状态</text>
+        <text class="w-24 text-right">同周收益</text>
+        <text class="w-24 text-right">全年收益</text>
+      </view>
+
+      <view class="divide-y" :class="isDark ? 'divide-[#29313A]' : 'divide-[#DCDDD8]'">
+        <view
+          v-for="y in sortedYears"
+          :key="y.year"
+          class="flex items-center py-2 text-[12px] font-mono tabular-nums"
+          :class="y.is_current ? (isDark ? 'bg-[#E5B352]/[0.06]' : 'bg-[#8A641F]/[0.05]') : ''"
+          @tap="toggleYearFocus(y.year)"
+        >
+          <text class="w-20 font-bold" :class="y.is_current ? (isDark ? 'text-[#E5B352]' : 'text-[#8A641F]') : (isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]')">
+            {{ y.year }}
           </text>
-          <view
-            class="w-full rounded-t-xs transition-all"
-            :style="{ height: `${st.winRate * 0.7}%` }"
-            :class="st.current ? 'bg-[#e5b352]' : st.winRate >= 60 ? 'bg-[#ff736a]/80' : 'bg-white/[0.12]'"
-          />
-          <text class="text-[8px] font-mono text-[#8d99a4] mt-1">{{ st.month.replace('月', '') }}</text>
+          <text class="flex-1 text-[11px]" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+            {{ y.is_current ? '进行中' : (y.is_complete ? '完整年度' : '部分年度') }}
+          </text>
+          <text class="w-24 text-right font-bold" :style="{ color: getGainColor(y.same_week_return_pct) }">
+            {{ formatPct(y.same_week_return_pct) }}
+          </text>
+          <text class="w-24 text-right" :style="{ color: getGainColor(y.full_year_return_pct) }">
+            {{ y.is_current ? '—' : formatPct(y.full_year_return_pct) }}
+          </text>
         </view>
       </view>
     </view>
   </view>
 </template>
-
-<style scoped>
-</style>

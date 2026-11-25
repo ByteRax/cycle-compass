@@ -67,12 +67,11 @@
           },
           "name": "WEBVIEW_WEBVIEW"
         },
-        // #ifdef H5
         {
           "path": "divergence/index",
           "type": "page",
           "style": {
-            "navigationBarTitleText": "趋势分析看板",
+            "navigationBarTitleText": "七图研究工作台",
             "navigationBarBackgroundColor": "#090C0F",
             "navigationBarTextStyle": "white",
             "backgroundColor": "#090C0F",
@@ -80,8 +79,99 @@
             "navigationStyle": "custom"
           },
           "name": "DIVERGENCE_INDEX"
+        },
+        {
+          "path": "finance/asset",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "资产详情",
+            "navigationStyle": "custom",
+            "enablePullDownRefresh": true,
+            "backgroundColor": "#090C0F"
+          },
+          "name": "FINANCE_ASSET"
+        },
+        {
+          "path": "finance/data-status",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "数据状态",
+            "navigationBarBackgroundColor": "#090C0F",
+            "navigationBarTextStyle": "white",
+            "backgroundColor": "#090C0F",
+            "navigationStyle": "custom"
+          },
+          "name": "FINANCE_DATA_STATUS"
+        },
+        {
+          "path": "finance/favorites",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "研究收藏",
+            "navigationBarBackgroundColor": "#090C0F",
+            "navigationBarTextStyle": "white",
+            "backgroundColor": "#090C0F",
+            "navigationStyle": "custom"
+          },
+          "name": "FINANCE_FAVORITES"
+        },
+        {
+          "path": "finance/index",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "金融资产",
+            "navigationStyle": "custom",
+            "enablePullDownRefresh": true,
+            "backgroundColor": "#090C0F"
+          },
+          "name": "FINANCE_INDEX"
+        },
+        {
+          "path": "finance/methodology",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "指标说明",
+            "navigationBarBackgroundColor": "#090C0F",
+            "navigationBarTextStyle": "white",
+            "backgroundColor": "#090C0F",
+            "navigationStyle": "custom"
+          },
+          "name": "FINANCE_METHODOLOGY"
+        },
+        {
+          "path": "finance/report",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "研究报告",
+            "navigationBarBackgroundColor": "#090C0F",
+            "navigationBarTextStyle": "white",
+            "backgroundColor": "#090C0F",
+            "navigationStyle": "custom"
+          },
+          "name": "FINANCE_REPORT"
+        },
+        {
+          "path": "finance/search",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "搜索资产",
+            "navigationStyle": "custom",
+            "backgroundColor": "#090C0F"
+          },
+          "name": "FINANCE_SEARCH"
+        },
+        {
+          "path": "finance/settings",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "金融研究设置",
+            "navigationBarBackgroundColor": "#090C0F",
+            "navigationBarTextStyle": "white",
+            "backgroundColor": "#090C0F",
+            "navigationStyle": "custom"
+          },
+          "name": "FINANCE_SETTINGS"
         }
-        // #endif
       ]
     }
   ]

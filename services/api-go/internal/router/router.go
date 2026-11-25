@@ -19,6 +19,7 @@ type RouterParams struct {
 	Strategy  *handler.StrategyHandler
 	Portfolio *handler.PortfolioHandler
 	Backtest  *handler.BacktestHandler
+	Trend     *handler.TrendHandler
 }
 
 func getOrHead(r chi.Router, pattern string, h http.HandlerFunc) {
@@ -121,6 +122,31 @@ func Setup(p RouterParams) http.Handler {
 		api.Route("/backtests", func(b chi.Router) {
 			b.Post("/run", p.Backtest.RunBacktest)
 		})
+
+		// V4 Assets & Trends
+		if p.Trend != nil {
+			api.Route("/assets", func(a chi.Router) {
+				getOrHead(a, "/catalog", p.Trend.GetCatalog)
+				getOrHead(a, "/universes", p.Trend.GetUniverses)
+				getOrHead(a, "/search", p.Trend.SearchAssets)
+				getOrHead(a, "/{id}", p.Trend.GetAssetDetail)
+				getOrHead(a, "/{id}/members", p.Trend.GetAssetMembers)
+			})
+
+			api.Route("/trends", func(tr chi.Router) {
+				getOrHead(tr, "/snapshots/latest", p.Trend.GetLatestSnapshot)
+				getOrHead(tr, "/methodology", p.Trend.GetMethodology)
+				getOrHead(tr, "/data-status", p.Trend.GetDataStatus)
+				getOrHead(tr, "/{id}/curve", p.Trend.GetTrendCurve)
+				getOrHead(tr, "/{id}/annual", p.Trend.GetTrendAnnual)
+				getOrHead(tr, "/{id}/components", p.Trend.GetTrendComponents)
+				getOrHead(tr, "/{id}/dashboard", p.Trend.GetTrendDashboard)
+				getOrHead(tr, "/{id}/season", p.Trend.GetTrendSeason)
+				getOrHead(tr, "/{id}/distribution", p.Trend.GetTrendDistribution)
+				getOrHead(tr, "/{id}/tier", p.Trend.GetTrendTier)
+				getOrHead(tr, "/{id}/events", p.Trend.GetTrendEvents)
+			})
+		}
 	})
 
 	return r

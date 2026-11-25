@@ -1,152 +1,471 @@
 <script lang="ts" setup>
-import { computed, ref } from 'vue'
+import type { TrendCurveResponse } from '@/api/types/trend'
+import type { TrendLineSeries, TrendStateInterval } from '@/components/trend/TrendLineCanvas.vue'
+import { computed, ref, watch } from 'vue'
+import { getTrendCurve } from '@/api/trend'
+import TrendLineCanvas from '@/components/trend/TrendLineCanvas.vue'
+import { useFinanceStore } from '@/stores/finance'
 
-interface Props {
-  datasetTitle: string
-  asOfDate?: string
+const props = withDefaults(defineProps<{
+  assetId: string
+  snapshotId?: string
+  range?: string
+  currency?: string
+  scopeId?: string
+  benchmarkId?: string
+}>(), {
+  snapshotId: '',
+  range: '1Y',
+  currency: 'CNY',
+  scopeId: '',
+  benchmarkId: ''
+})
+
+const financeStore = useFinanceStore()
+const isDark = computed(() => financeStore.isDarkEffective)
+const isCnRedUp = computed(() => financeStore.colorScheme === 'cn_red_up')
+
+const rangeOptions = ['3M', '6M', '1Y', '3Y', 'ALL'] as const
+const freqOptions = [
+  { key: 'day', label: '日线' },
+  { key: 'week', label: '周线' },
+  { key: 'month', label: '月线' }
+] as const
+
+const activeRange = ref<string>(props.range || '1Y')
+const activeFreq = ref<'day' | 'week' | 'month'>('day')
+const scaleMode = ref<'linear' | 'log'>('linear')
+
+const loading = ref(false)
+const errorMsg = ref('')
+const curveData = ref<TrendCurveResponse | null>(null)
+
+function formatPct(val: number | null | undefined): string {
+  if (val === null || val === undefined || !Number.isFinite(val))
+    return '—'
+  const sign = val > 0
+? '+'
+: ''
+  return `${sign}${val.toFixed(2)}%`
 }
 
-const props = withDefaults(defineProps<Props>(), {
-  datasetTitle: 'A股',
-  asOfDate: ''
+function formatPrice(val: number | null | undefined): string {
+  if (val === null || val === undefined || !Number.isFinite(val))
+    return '—'
+  const abs = Math.abs(val)
+  if (abs >= 1000)
+    return val.toFixed(1)
+  if (abs >= 1)
+    return val.toFixed(2)
+  return val.toFixed(4)
+}
+
+function formatTurnover(val: number | null | undefined): string {
+  if (val === null || val === undefined || !Number.isFinite(val))
+    return '—'
+  if (val >= 1e8)
+    return `${(val / 1e8).toFixed(2)}亿`
+  if (val >= 1e4)
+    return `${(val / 1e4).toFixed(1)}万`
+  return val.toFixed(0)
+}
+
+function getGainColor(val: number | null | undefined): string {
+  if (val === null || val === undefined || !Number.isFinite(val))
+    return isDark.value ? '#8D99A4' : '#626F77'
+  if (val === 0)
+    return isDark.value ? '#F1EFEA' : '#22292E'
+  const isUp = val > 0
+  if (isCnRedUp.value) {
+    return isUp
+? (isDark.value ? '#FF736A' : '#B93842')
+: (isDark.value ? '#2EC4B6' : '#14745E')
+}
+  return isUp
+? (isDark.value ? '#2EC4B6' : '#14745E')
+: (isDark.value ? '#FF736A' : '#B93842')
+}
+
+async function fetchCurveData() {
+  if (!props.assetId)
+    return
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    const res = await getTrendCurve(props.assetId, {
+      range: activeRange.value,
+      freq: activeFreq.value,
+      currency: props.currency || undefined,
+      benchmark_id: props.benchmarkId || undefined,
+      snapshot_id: props.snapshotId || undefined
+    })
+    curveData.value = res.data ?? null
+  }
+  catch (err: any) {
+    errorMsg.value = err?.message || '趋势曲线加载失败，请稍后重试'
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+watch(
+  () => props.range,
+  (val) => {
+    if (val && val !== activeRange.value)
+      activeRange.value = val
+  }
+)
+
+watch(
+  () => [
+props.assetId,
+props.snapshotId,
+props.currency,
+props.benchmarkId,
+activeRange.value,
+activeFreq.value
+],
+  () => {
+    fetchCurveData()
+  },
+  { immediate: true }
+)
+
+const dates = computed(() => (curveData.value?.points || []).map(p => p.trading_date))
+
+const chartSeries = computed<TrendLineSeries[]>(() => {
+  const data = curveData.value
+  if (!data || !data.points.length)
+    return []
+
+  const isLog = scaleMode.value === 'log'
+  const assetColor = isDark.value ? '#E5B352' : '#8A641F'
+  const benchColor = isDark.value ? '#72A7D9' : '#326C9D'
+
+  const mainValues = data.points.map(p => (isLog ? p.value : p.return_pct))
+  const list: TrendLineSeries[] = [
+    {
+      id: data.asset_id,
+      name: data.asset_name || '标的',
+      color: assetColor,
+      values: mainValues,
+      highlighted: true,
+      lineWidth: 2.4
+    }
+  ]
+
+  if (!isLog && data.benchmark_points && data.benchmark_points.length > 0) {
+    const benchByDate = new Map<string, number | null>()
+    for (const bp of data.benchmark_points)
+      benchByDate.set(bp.trading_date, bp.return_pct)
+    list.push({
+      id: data.benchmark_id || 'benchmark',
+      name: data.benchmark_name || '基准',
+      color: benchColor,
+      values: dates.value.map(d => benchByDate.get(d) ?? null),
+      dashed: true,
+      lineWidth: 1.6
+    })
+  }
+
+  return list
 })
 
-const displayDate = computed(() => {
-  return props.asOfDate || '2026/11/25'
+const stateIntervals = computed<TrendStateInterval[]>(() => {
+  return (curveData.value?.state_intervals || []).map(s => ({
+    startDate: s.start_date,
+    endDate: s.end_date,
+    side: s.side
+  }))
 })
 
-const selectedPeriod = ref<'日线' | '周线' | '月线'>('日线')
-
-// 模拟趋势数据点 (SVG 渲染)
-const svgW = 660
-const svgH = 260
-const padL = 40
-const padR = 20
-const padT = 20
-const padB = 30
-
-const pricePoints = [
-  { x: 40, y: 180, ma20: 175, ma60: 165 },
-  { x: 100, y: 160, ma20: 168, ma60: 163 },
-  { x: 160, y: 175, ma20: 164, ma60: 162 },
-  { x: 220, y: 140, ma20: 155, ma60: 160 },
-  { x: 280, y: 130, ma20: 145, ma60: 158 },
-  { x: 340, y: 110, ma20: 132, ma60: 152 },
-  { x: 400, y: 125, ma20: 124, ma60: 146 },
-  { x: 460, y: 95, ma20: 112, ma60: 138 },
-  { x: 520, y: 70, ma20: 98, ma60: 128 },
-  { x: 580, y: 65, ma20: 82, ma60: 118 },
-  { x: 640, y: 55, ma20: 70, ma60: 108 }
-]
-
-const pricePath = computed(() => {
-  return pricePoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '')
+const latestPoint = computed(() => {
+  const pts = curveData.value?.points || []
+  for (let i = pts.length - 1; i >= 0; i--) {
+    if (pts[i]?.value !== null && pts[i]?.value !== undefined)
+      return pts[i]
+  }
+  return null
 })
 
-const ma20Path = computed(() => {
-  return pricePoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.ma20}`, '')
+const avgTurnover = computed(() => {
+  const pts = (curveData.value?.points || []).filter(p => p.turnover !== null && Number.isFinite(p.turnover))
+  if (!pts.length)
+    return null
+  const sum = pts.reduce((acc, p) => acc + (p.turnover || 0), 0)
+  return sum / pts.length
 })
 
-const ma60Path = computed(() => {
-  return pricePoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.ma60}`, '')
+const statusLabel = computed(() => {
+  const status = curveData.value?.snapshot?.status
+  if (!status || status === 'ok')
+    return ''
+  const map: Record<string, string> = {
+    degraded: '部分降级',
+    stale: '非最新快照',
+    offline_seed: '离线样例',
+    insufficient: '样本不足',
+    not_covered: '暂无权限',
+    error: '数据异常'
+  }
+  return map[status] || status
 })
 </script>
 
 <template>
-  <view class="w-full">
-    <!-- 头部趋势信号栏 -->
-    <view class="mb-3 flex items-center justify-between">
-      <view>
-        <text class="text-xl font-black text-[#f1efea] tracking-tight block">{{ datasetTitle }} · 趋势曲线</text>
-        <view class="flex items-center space-x-2 mt-1">
-          <text class="text-[10px] font-mono text-[#e5b352]">{{ displayDate }}</text>
-          <text class="text-white/20 text-[10px]">|</text>
-          <text class="text-[10px] font-mono text-[#8d99a4]">最新基准价: 30.58</text>
-          <text class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#ff736a]/20 text-[#ff736a] border border-[#ff736a]/30">
-            多头排列 · 趋势加速
+  <view class="w-full space-y-3">
+    <!-- 顶部标的与日期信息 -->
+    <view class="flex items-start justify-between gap-2">
+      <view class="min-w-0 flex-1">
+        <view class="flex items-center gap-2">
+          <text class="text-[18px] font-bold truncate" :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+            {{ curveData?.asset_name || assetId }} · 趋势曲线
+          </text>
+          <text
+            v-if="statusLabel"
+            class="px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0"
+            :class="isDark ? 'bg-[#E5B352]/15 text-[#E5B352]' : 'bg-[#8A641F]/12 text-[#8A641F]'"
+          >
+            {{ statusLabel }}
           </text>
         </view>
+        <view class="flex items-center gap-2 mt-1 text-[11px] font-mono tabular-nums" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          <text :class="isDark ? 'text-[#E5B352]' : 'text-[#8A641F]'">
+            {{ curveData?.snapshot?.as_of || '—' }}
+          </text>
+          <text>·</text>
+          <text>最新 {{ formatPrice(latestPoint?.value) }}</text>
+          <text v-if="curveData?.benchmark_name">· 基准 {{ curveData.benchmark_name }}</text>
+        </view>
       </view>
-      <!-- 周期粒度切换 -->
-      <view class="flex items-center space-x-1 bg-[#12181F] p-1 rounded-lg border border-white/[0.06]">
+
+      <!-- 线性/对数坐标切换 -->
+      <view
+        class="flex items-center p-0.5 rounded-lg border shrink-0"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-[#EDECE6] border-[#DCDDD8]'"
+      >
         <text
-          v-for="p in ['日线', '周线', '月线']"
-          :key="p"
-          class="px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-all"
-          :class="selectedPeriod === p ? 'bg-[#e5b352] text-[#090C0F] font-bold' : 'text-[#8d99a4]'"
-          @tap="selectedPeriod = p as any"
+          class="px-2 py-1 rounded text-[11px] font-mono transition-colors"
+          :class="scaleMode === 'linear'
+            ? (isDark ? 'bg-[#E5B352] text-[#090C0F] font-bold' : 'bg-[#8A641F] text-white font-bold')
+            : (isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]')"
+          @tap="scaleMode = 'linear'"
         >
-          {{ p }}
+          线性
+        </text>
+        <text
+          class="px-2 py-1 rounded text-[11px] font-mono transition-colors"
+          :class="scaleMode === 'log'
+            ? (isDark ? 'bg-[#E5B352] text-[#090C0F] font-bold' : 'bg-[#8A641F] text-white font-bold')
+            : (isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]')"
+          @tap="scaleMode = 'log'"
+        >
+          对数
         </text>
       </view>
     </view>
 
-    <!-- 趋势主图 (价格走势 + 均线系统) -->
-    <view class="rounded-2xl bg-[#12181F] border border-white/[0.08] p-3 shadow-xl mb-3">
-      <!-- 图例 -->
-      <view class="flex items-center space-x-3 pb-2 border-b border-white/[0.05] text-[10px] font-mono">
-        <view class="flex items-center space-x-1">
-          <text class="w-2.5 h-0.5 bg-[#f1efea]" />
-          <text class="text-[#f1efea]">收盘价</text>
-        </view>
-        <view class="flex items-center space-x-1">
-          <text class="w-2.5 h-0.5 bg-[#e5b352]" />
-          <text class="text-[#e5b352]">MA20</text>
-        </view>
-        <view class="flex items-center space-x-1">
-          <text class="w-2.5 h-0.5 bg-[#38bdf8]" />
-          <text class="text-[#38bdf8]">MA60</text>
-        </view>
+    <!-- 区间与频度筛选栏 -->
+    <view class="flex items-center justify-between gap-2">
+      <view
+        class="flex items-center p-0.5 rounded-lg border"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-[#EDECE6] border-[#DCDDD8]'"
+      >
+        <text
+          v-for="r in rangeOptions"
+          :key="r"
+          class="px-2 py-1 rounded text-[11px] font-mono transition-colors"
+          :class="activeRange === r
+            ? (isDark ? 'bg-[#E5B352] text-[#090C0F] font-bold' : 'bg-[#8A641F] text-white font-bold')
+            : (isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]')"
+          @tap="activeRange = r"
+        >
+          {{ r }}
+        </text>
       </view>
 
-      <!-- SVG 曲线走势 -->
-      <view class="w-full relative mt-2">
-        <svg :viewBox="`0 0 ${svgW} ${svgH}`" class="w-full h-auto block" preserveAspectRatio="xMidYMid meet">
-          <!-- 背景网格虚线 -->
-          <line x1="40" y1="60" x2="640" y2="60" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2" />
-          <line x1="40" y1="120" x2="640" y2="120" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2" />
-          <line x1="40" y1="180" x2="640" y2="180" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2" />
-
-          <!-- MA60 蓝线 -->
-          <path :d="ma60Path" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="4,2" />
-          <!-- MA20 金线 -->
-          <path :d="ma20Path" fill="none" stroke="#e5b352" stroke-width="2" />
-          <!-- 价格白线 -->
-          <path :d="pricePath" fill="none" stroke="#f1efea" stroke-width="2.5" stroke-linecap="round" />
-
-          <!-- 当前价格圆点与水波高亮 -->
-          <circle cx="640" cy="55" r="4" fill="#e5b352" />
-          <circle cx="640" cy="55" r="8" fill="none" stroke="#e5b352" stroke-opacity="0.4" stroke-width="1.5" />
-
-          <!-- X 轴刻度 -->
-          <text x="40" y="240" fill="#64707c" font-size="10" font-family="monospace">08/15</text>
-          <text x="240" y="240" fill="#64707c" font-size="10" font-family="monospace">09/20</text>
-          <text x="440" y="240" fill="#64707c" font-size="10" font-family="monospace">10/25</text>
-          <text x="640" y="240" text-anchor="end" fill="#e5b352" font-size="10" font-family="monospace" font-weight="bold">11/24 (最新)</text>
-        </svg>
+      <view
+        class="flex items-center p-0.5 rounded-lg border"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-[#EDECE6] border-[#DCDDD8]'"
+      >
+        <text
+          v-for="f in freqOptions"
+          :key="f.key"
+          class="px-2 py-1 rounded text-[11px] font-mono transition-colors"
+          :class="activeFreq === f.key
+            ? (isDark ? 'bg-white/15 text-[#F1EFEA] font-bold' : 'bg-white text-[#22292E] font-bold shadow-xs')
+            : (isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]')"
+          @tap="activeFreq = f.key"
+        >
+          {{ f.label }}
+        </text>
       </view>
     </view>
 
-    <!-- 趋势体征诊断卡 -->
-    <view class="grid grid-cols-3 gap-2">
-      <view class="rounded-xl bg-[#12181F] border border-white/[0.08] p-2.5">
-        <text class="text-[10px] text-[#8d99a4] block">趋势强度</text>
-        <text class="text-base font-black font-mono text-[#ff736a] mt-0.5 block">82.5 <text class="text-xs">分</text></text>
-        <text class="text-[9px] text-[#64707c] mt-0.5 block">主升通道中轨</text>
+    <!-- 主图卡片 -->
+    <view
+      class="rounded-2xl border p-3"
+      :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+    >
+      <!-- 图例与坐标说明 -->
+      <view
+        class="flex items-center justify-between pb-2 mb-2 border-b text-[11px] font-mono"
+        :class="isDark ? 'border-[#29313A]' : 'border-[#DCDDD8]'"
+      >
+        <view class="flex items-center gap-3">
+          <view class="flex items-center gap-1.5">
+            <view class="w-3 h-0.5" :style="{ backgroundColor: isDark ? '#E5B352' : '#8A641F' }" />
+            <text :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+              {{ scaleMode === 'log' ? '净值/价格(对数)' : '区间累计收益' }}
+            </text>
+          </view>
+          <view v-if="scaleMode === 'linear' && curveData?.benchmark_name" class="flex items-center gap-1.5">
+            <view class="w-3 h-0.5 border-t border-dashed" :style="{ borderColor: isDark ? '#72A7D9' : '#326C9D' }" />
+            <text :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+              {{ curveData.benchmark_name }}
+            </text>
+          </view>
+        </view>
+        <text :class="isDark ? 'text-[#64707C]' : 'text-[#626F77]'">
+          长按滑动看读数
+        </text>
       </view>
-      <view class="rounded-xl bg-[#12181F] border border-white/[0.08] p-2.5">
-        <text class="text-[10px] text-[#8d99a4] block">均线发散率</text>
-        <text class="text-base font-black font-mono text-[#e5b352] mt-0.5 block">+6.8%</text>
-        <text class="text-[9px] text-[#64707c] mt-0.5 block">MA20 / MA60 扩大</text>
+
+      <view v-if="loading" class="h-[220px] flex items-center justify-center">
+        <text class="text-[12px]" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
+          正在加载趋势曲线...
+        </text>
       </view>
-      <view class="rounded-xl bg-[#12181F] border border-white/[0.08] p-2.5">
-        <text class="text-[10px] text-[#8d99a4] block">支撑阻力带</text>
-        <text class="text-base font-black font-mono text-[#38bdf8] mt-0.5 block">29.40</text>
-        <text class="text-[9px] text-[#64707c] mt-0.5 block">强下沿防护</text>
+
+      <view v-else-if="errorMsg" class="h-[220px] flex flex-col items-center justify-center gap-2">
+        <text class="text-[12px] text-center" :class="isDark ? 'text-[#FF736A]' : 'text-[#B93842]'">
+          {{ errorMsg }}
+        </text>
+        <text
+          class="px-3 py-1 rounded-lg text-[11px] font-bold"
+          :class="isDark ? 'bg-[#E5B352] text-[#090C0F]' : 'bg-[#8A641F] text-white'"
+          @tap="fetchCurveData"
+        >
+          重新加载
+        </text>
+      </view>
+
+      <view v-else-if="!dates.length" class="h-[220px] flex items-center justify-center">
+        <text class="text-[12px]" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
+          当前区间暂无足够历史序列数据
+        </text>
+      </view>
+
+      <TrendLineCanvas
+        v-else
+        canvas-id="trendCurveCanvas"
+        :dates="dates"
+        :series="chartSeries"
+        :height="220"
+        :value-format="scaleMode === 'log' ? 'price' : 'pct'"
+        :log-scale="scaleMode === 'log'"
+        :show-zero-line="scaleMode === 'linear'"
+        :state-intervals="stateIntervals"
+      />
+    </view>
+
+    <!-- 区间极值与成交额概况 -->
+    <view v-if="curveData" class="grid grid-cols-2 gap-2">
+      <view
+        class="rounded-xl border p-2.5"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+      >
+        <text class="text-[11px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          区间累计收益
+        </text>
+        <text
+          class="text-[16px] font-bold font-mono tabular-nums mt-0.5 block"
+          :style="{ color: getGainColor(latestPoint?.return_pct) }"
+        >
+          {{ formatPct(latestPoint?.return_pct) }}
+        </text>
+        <text class="text-[10px] font-mono mt-0.5 block" :class="isDark ? 'text-[#64707C]' : 'text-[#626F77]'">
+          截至 {{ latestPoint?.trading_date || curveData.snapshot.as_of }}
+        </text>
+      </view>
+
+      <view
+        class="rounded-xl border p-2.5"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+      >
+        <text class="text-[11px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          成交额概况
+        </text>
+        <text class="text-[16px] font-bold font-mono tabular-nums mt-0.5 block" :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+          {{ formatTurnover(latestPoint?.turnover) }}
+        </text>
+        <text class="text-[10px] font-mono mt-0.5 block" :class="isDark ? 'text-[#64707C]' : 'text-[#626F77]'">
+          区间日均 {{ formatTurnover(avgTurnover) }}
+        </text>
+      </view>
+
+      <view
+        class="rounded-xl border p-2.5"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+      >
+        <text class="text-[11px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          区间最高 / 最低
+        </text>
+        <text class="text-[13px] font-bold font-mono tabular-nums mt-0.5 block" :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+          {{ formatPrice(curveData.extremum.high_value) }} / {{ formatPrice(curveData.extremum.low_value) }}
+        </text>
+        <text class="text-[10px] font-mono mt-0.5 block truncate" :class="isDark ? 'text-[#64707C]' : 'text-[#626F77]'">
+          高 {{ curveData.extremum.high_date || '—' }} · 低 {{ curveData.extremum.low_date || '—' }}
+        </text>
+      </view>
+
+      <view
+        class="rounded-xl border p-2.5"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+      >
+        <text class="text-[11px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+          最大上涨 / 最大回撤
+        </text>
+        <view class="flex items-center gap-1.5 mt-0.5 font-mono tabular-nums text-[13px] font-bold">
+          <text :style="{ color: getGainColor(curveData.extremum.max_gain_pct) }">
+            {{ formatPct(curveData.extremum.max_gain_pct) }}
+          </text>
+          <text :class="isDark ? 'text-[#64707C]' : 'text-[#626F77]'">/</text>
+          <text :style="{ color: getGainColor(curveData.extremum.max_drawdown_pct !== null ? -Math.abs(curveData.extremum.max_drawdown_pct) : null) }">
+            {{ curveData.extremum.max_drawdown_pct !== null ? `-${Math.abs(curveData.extremum.max_drawdown_pct).toFixed(2)}%` : '—' }}
+          </text>
+        </view>
+        <text class="text-[10px] font-mono mt-0.5 block truncate" :class="isDark ? 'text-[#64707C]' : 'text-[#626F77]'">
+          回撤 {{ curveData.extremum.drawdown_peak_date || '—' }} → {{ curveData.extremum.drawdown_trough_date || '—' }}
+        </text>
+      </view>
+    </view>
+
+    <!-- 近期状态切换事件 -->
+    <view
+      v-if="curveData?.events?.length"
+      class="rounded-2xl border p-3"
+      :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+    >
+      <text class="text-[13px] font-bold block mb-2" :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+        区间趋势事件记录
+      </text>
+      <view class="space-y-1.5">
+        <view
+          v-for="ev in curveData.events.slice(0, 5)"
+          :key="ev.event_id"
+          class="flex items-center justify-between text-[11px] py-1 border-b last:border-b-0"
+          :class="isDark ? 'border-[#29313A]' : 'border-[#DCDDD8]'"
+        >
+          <text class="font-mono" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+            {{ ev.as_of }}
+          </text>
+          <text :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+            {{ ev.event_type }}：{{ ev.old_value }} → {{ ev.new_value }}
+          </text>
+        </view>
       </view>
     </view>
   </view>
 </template>
-
-<style scoped>
-</style>

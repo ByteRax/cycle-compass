@@ -111,8 +111,10 @@ func (s *SQLiteStore) initSchema() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id, id ASC);
 	`
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	return s.runMigrations()
 }
 
 func (s *SQLiteStore) seedInitialData() error {

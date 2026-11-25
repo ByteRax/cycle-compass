@@ -36,17 +36,10 @@ func main() {
 	// 2. 初始化行情提供者
 	seedProvider := market.NewSeedProvider(cfg.DataDir)
 	onlineProvider := market.NewOnlineProvider(seedProvider)
-
-	// 3. 异步后台预热
-	go func() {
-		warmupCtx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-		defer cancel()
-		log.Println("[CycleCompass-Go] 正在执行后台预热...")
-		_ = seedProvider.GetCachedHistRatios()
-		_ = onlineProvider.GetQuotesBatch(warmupCtx, service.DefaultWatchlist[:5])
-		log.Println("[CycleCompass-Go] 后台预热完成，启动行情主动刷新器(2.5s)...")
-		onlineProvider.StartAutoRefresh(rootCtx, service.DefaultWatchlist, 2500*time.Millisecond)
-	}()
+	histProvider := market.NewHistoricalProvider(market.HistoricalProviderConfig{
+		SnapshotDir:  cfg.DataDir,
+		SeedFallback: seedProvider,
+	})
 
 	// 4. 初始化服务层
 	marketSvc := service.NewMarketService(onlineProvider)
@@ -55,6 +48,24 @@ func main() {
 	strategySvc := service.NewStrategyService(onlineProvider, seedProvider)
 	portfolioSvc := service.NewPortfolioService(store, onlineProvider)
 	backtestSvc := service.NewBacktestService(seedProvider)
+	trendSvc := service.NewTrendService(store, histProvider)
+
+	// 3. 异步后台预热（不阻塞服务启动）
+	go func() {
+		warmupCtx, cancel := context.WithTimeout(rootCtx, 15*time.Second)
+		defer cancel()
+		log.Println("[CycleCompass-Go] 正在执行后台预热...")
+		_ = seedProvider.GetCachedHistRatios()
+		_ = onlineProvider.GetQuotesBatch(warmupCtx, service.DefaultWatchlist[:5])
+		if err := trendSvc.BootstrapAndComputeSnapshot(warmupCtx, false); err != nil {
+			log.Printf("[CycleCompass-Go] V4 本地快照初始化警告: %v", err)
+		}
+		if err := trendSvc.BootstrapAndComputeSnapshot(warmupCtx, true); err != nil {
+			log.Printf("[CycleCompass-Go] V4 在线快照更新警告: %v", err)
+		}
+		log.Println("[CycleCompass-Go] 后台预热完成，启动行情主动刷新器(2.5s)...")
+		onlineProvider.StartAutoRefresh(rootCtx, service.DefaultWatchlist, 2500*time.Millisecond)
+	}()
 
 	// 5. 初始化 Handler 层
 	rootH := handler.NewRootHandler(cfg, onlineProvider)
@@ -64,6 +75,7 @@ func main() {
 	strategyH := handler.NewStrategyHandler(strategySvc)
 	portfolioH := handler.NewPortfolioHandler(portfolioSvc)
 	backtestH := handler.NewBacktestHandler(backtestSvc)
+	trendH := handler.NewTrendHandler(trendSvc)
 
 	// 6. 组装路由
 	r := router.Setup(router.RouterParams{
@@ -75,6 +87,7 @@ func main() {
 		Strategy:  strategyH,
 		Portfolio: portfolioH,
 		Backtest:  backtestH,
+		Trend:     trendH,
 	})
 
 	// 启动仅限内网可见的 pprof 性能探针 (127.0.0.1:6060)

@@ -1,22 +1,21 @@
 <script lang="ts" setup>
-import { computed, ref, watch } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
-import TrendMenuDropdown from '@/components/trend/TrendMenuDropdown.vue'
-import TrendCurveView from '@/components/trend/TrendCurveView.vue'
+import type { AssetDetailResponse, ChartType } from '@/api/types/trend'
+import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
+import { computed, onMounted, ref, watch } from 'vue'
+import { getAssetDetail } from '@/api/trend'
 import AnnualTrendView from '@/components/trend/AnnualTrendView.vue'
 import ComponentTrendView from '@/components/trend/ComponentTrendView.vue'
-import TrendDashboardView from '@/components/trend/TrendDashboardView.vue'
-import SolarTermsView from '@/components/trend/SolarTermsView.vue'
 import RightDistributionView from '@/components/trend/RightDistributionView.vue'
-import {
-  DIVERGENCE_DATASETS,
-  getTodayDateStr,
-  type DivergenceDataset
-} from '@/data/divergence'
+import SolarTermsView from '@/components/trend/SolarTermsView.vue'
+import TrendCurveView from '@/components/trend/TrendCurveView.vue'
+import TrendDashboardView from '@/components/trend/TrendDashboardView.vue'
+import TrendMenuDropdown from '@/components/trend/TrendMenuDropdown.vue'
+import TrendTierView from '@/components/trend/TrendTierView.vue'
+import { useFinanceStore } from '@/stores/finance'
 
 definePage({
   style: {
-    navigationBarTitleText: '趋势分析看板',
+    navigationBarTitleText: '七图研究工作台',
     navigationBarBackgroundColor: '#090C0F',
     navigationBarTextStyle: 'white',
     backgroundColor: '#090C0F',
@@ -25,57 +24,240 @@ definePage({
   }
 })
 
-// 当前资产数据集（默认 A股 或 红利ETF）
-const currentDatasetId = ref<string>('a_shares')
+const financeStore = useFinanceStore()
+const isDark = computed(() => financeStore.isDarkEffective)
 
-// 动态获取真实最新日期
-const latestDateStr = ref<string>(getTodayDateStr())
+interface ChartTabMeta {
+  key: ChartType
+  label: string
+  shortLabel: string
+  row: 1 | 2
+}
 
-// 6大趋势视角状态 (0: 趋势曲线, 1: 年度价格走势, 2: 品种成分趋势, 3: 趋势仪表盘, 4: 趋势节气图, 5: 右侧分布图)
-const currentViewIndex = ref<number>(2) // 默认 3: 品种成分趋势
-
-// 顶部下拉菜单开关
-const showDropdown = ref<boolean>(false)
-
-const viewTitles = [
-  '趋势曲线',
-  '年度价格走势',
-  '品种成分趋势',
-  '趋势仪表盘',
-  '趋势节气图',
-  '右侧分布图'
+const CHART_TABS: ChartTabMeta[] = [
+  {
+key: 'curve',
+label: '趋势曲线',
+shortLabel: '曲线',
+row: 1
+},
+  {
+key: 'annual',
+label: '年度同期走势',
+shortLabel: '年度',
+row: 1
+},
+  {
+key: 'components',
+label: '品种成分趋势',
+shortLabel: '成分',
+row: 1
+},
+  {
+key: 'dashboard',
+label: '趋势仪表盘',
+shortLabel: '仪表盘',
+row: 1
+},
+  {
+key: 'season',
+label: '趋势节气图',
+shortLabel: '节气图',
+row: 2
+},
+  {
+key: 'distribution',
+label: '右侧分布图',
+shortLabel: '右侧分布',
+row: 2
+},
+  {
+key: 'tier',
+label: '趋势梯队榜',
+shortLabel: '梯队榜',
+row: 2
+}
 ]
 
-const currentViewTitle = computed(() => {
-  return viewTitles[currentViewIndex.value] || '品种成分趋势'
-})
+const LEGACY_VIEW_MAP: Record<number, ChartType> = {
+  0: 'curve',
+  1: 'curve',
+  2: 'annual',
+  3: 'components',
+  4: 'dashboard',
+  5: 'season',
+  6: 'distribution',
+  7: 'tier'
+}
 
-const dataset = computed<DivergenceDataset>(() => {
-  return DIVERGENCE_DATASETS[currentDatasetId.value] || DIVERGENCE_DATASETS.a_shares
-})
+const LEGACY_ID_MAP: Record<string, string> = {
+  a_shares: 'universe_a_shares',
+  etf_macro: 'universe_macro',
+  dividend_etf: 'dividend_etf',
+  a_shares_long: 'a_shares_long'
+}
 
-onLoad((query: any) => {
-  if (query?.id && DIVERGENCE_DATASETS[query.id]) {
-    currentDatasetId.value = query.id
+const quickAssets = [
+  { id: 'universe_a_shares', label: 'A股行业' },
+  { id: 'universe_macro', label: '宏观大类' },
+  { id: 'dividend_etf', label: '红利ETF' },
+  { id: 'a_shares_long', label: 'A股27年' }
+]
+
+const currentAssetId = ref<string>('universe_a_shares')
+const currentChart = ref<ChartType>('curve')
+const currentRange = ref<string>(financeStore.defaultRange || '1Y')
+const currentCurrency = ref<string>(financeStore.defaultCurrency || 'CNY')
+const currentScopeId = ref<string>('')
+const currentBenchmarkId = ref<string>('')
+const currentSnapshotId = ref<string>('')
+
+const assetDetail = ref<AssetDetailResponse | null>(null)
+const detailLoading = ref(false)
+const showDropdown = ref(false)
+const showConfigModal = ref(false)
+
+// 安全区与胶囊适配
+const statusBarHeight = ref(24)
+const navContentHeight = ref(44)
+const capsuleRightPadding = ref(12)
+const safeBottomPx = ref(0)
+
+function measureSafeArea() {
+  try {
+    const sys = uni.getSystemInfoSync()
+    statusBarHeight.value = sys.statusBarHeight || 24
+    safeBottomPx.value = sys.safeAreaInsets?.bottom ?? 0
+
+    // #ifdef MP-WEIXIN
+    if (typeof uni.getMenuButtonBoundingClientRect === 'function') {
+      const rect = uni.getMenuButtonBoundingClientRect()
+      if (rect && rect.top && rect.height) {
+        const gap = Math.max(4, rect.top - statusBarHeight.value)
+        navContentHeight.value = rect.height + gap * 2
+        const winW = sys.windowWidth || 375
+        capsuleRightPadding.value = Math.max(12, winW - rect.left + 8)
+      }
+    }
+    // #endif
   }
-  if (query?.view !== undefined) {
-    const v = parseInt(query.view, 10)
-    if (!isNaN(v) && v >= 1 && v <= 6) {
-      currentViewIndex.value = v - 1
+  catch {
+    statusBarHeight.value = 24
+    navContentHeight.value = 44
+  }
+}
+
+onMounted(() => {
+  measureSafeArea()
+})
+
+const availableCharts = computed<ChartType[]>(() => {
+  const list = assetDetail.value?.available_charts
+  if (list && list.length > 0)
+    return list
+  return CHART_TABS.map(t => t.key)
+})
+
+const currentChartTitle = computed(() => {
+  return CHART_TABS.find(t => t.key === currentChart.value)?.label || '趋势曲线'
+})
+
+const displayAssetName = computed(() => {
+  return assetDetail.value?.asset?.name
+    || quickAssets.find(a => a.id === currentAssetId.value)?.label
+    || currentAssetId.value
+})
+
+const displayAsOfDate = computed(() => {
+  return assetDetail.value?.snapshot?.as_of || assetDetail.value?.asset?.as_of || '—'
+})
+
+const row1Tabs = computed(() => CHART_TABS.filter(t => t.row === 1))
+const row2Tabs = computed(() => CHART_TABS.filter(t => t.row === 2))
+
+function isChartAvailable(chart: ChartType): boolean {
+  return availableCharts.value.includes(chart)
+}
+
+async function fetchAssetDetail() {
+  if (!currentAssetId.value)
+    return
+  detailLoading.value = true
+  try {
+    const res = await getAssetDetail(currentAssetId.value, {
+      scope_id: currentScopeId.value || undefined,
+      currency: currentCurrency.value || undefined,
+      snapshot_id: currentSnapshotId.value || undefined
+    })
+    const data = res.data ?? null
+    assetDetail.value = data
+    if (data) {
+      if (data.benchmark_id && !currentBenchmarkId.value)
+        currentBenchmarkId.value = data.benchmark_id
+      if (data.snapshot?.snapshot_id && !currentSnapshotId.value)
+        currentSnapshotId.value = data.snapshot.snapshot_id
+      if (data.available_charts?.length && !data.available_charts.includes(currentChart.value)) {
+        const firstChart = data.available_charts[0]
+        if (firstChart)
+          currentChart.value = firstChart
+      }
     }
   }
+  catch {
+    assetDetail.value = null
+  }
+  finally {
+    detailLoading.value = false
+  }
+}
+
+watch(
+  () => [currentAssetId.value, currentCurrency.value, currentScopeId.value],
+  () => {
+    fetchAssetDetail()
+  }
+)
+
+onLoad((query: any) => {
+  const rawId = query?.asset_id || query?.id
+  if (rawId) {
+    const decoded = decodeURIComponent(String(rawId))
+    currentAssetId.value = LEGACY_ID_MAP[decoded] || decoded
+  }
+  if (query?.chart) {
+    const chartVal = String(query.chart) as ChartType
+    if (CHART_TABS.some(t => t.key === chartVal))
+      currentChart.value = chartVal
+  }
+  else if (query?.view !== undefined) {
+    const v = Number.parseInt(String(query.view), 10)
+    if (!Number.isNaN(v) && LEGACY_VIEW_MAP[v])
+      currentChart.value = LEGACY_VIEW_MAP[v]
+  }
+  if (query?.range)
+    currentRange.value = decodeURIComponent(String(query.range))
+  if (query?.currency)
+    currentCurrency.value = decodeURIComponent(String(query.currency))
+  if (query?.scope_id)
+    currentScopeId.value = decodeURIComponent(String(query.scope_id))
+  if (query?.benchmark_id)
+    currentBenchmarkId.value = decodeURIComponent(String(query.benchmark_id))
+  if (query?.snapshot_id)
+    currentSnapshotId.value = decodeURIComponent(String(query.snapshot_id))
+
+  fetchAssetDetail()
 })
 
-// 滑动切换回调
-const onSwiperChange = (e: any) => {
-  currentViewIndex.value = e.detail.current
+function handleSelectChart(chart: ChartType) {
+  if (!isChartAvailable(chart)) {
+    uni.showToast({ title: '当前标的暂无该图表成员数据', icon: 'none' })
+    return
+  }
+  currentChart.value = chart
+  showDropdown.value = false
 }
 
-const handleSelectView = (idx: number) => {
-  currentViewIndex.value = idx
-}
-
-const handleGoBack = () => {
+function handleGoBack() {
   uni.navigateBack({
     fail: () => {
       uni.reLaunch({ url: '/pages/index/index' })
@@ -83,144 +265,347 @@ const handleGoBack = () => {
   })
 }
 
-// 独立资产页面快速切换（红利ETF、ETF大类、A股短周期、A股27年领跑）
-const assetOptions = [
-  { id: 'a_shares', label: 'A股行业' },
-  { id: 'dividend_etf', label: '红利ETF' },
-  { id: 'etf_macro', label: 'ETF大类' },
-  { id: 'a_shares_long', label: 'A股27年' }
-]
+function handleSaveFavoriteChart() {
+  try {
+    financeStore.saveFavoriteChart({
+      title: `${displayAssetName.value} · ${currentChartTitle.value}`,
+      chart: currentChart.value,
+      asset_id: currentAssetId.value,
+      asset_name: displayAssetName.value,
+      snapshot_mode: currentSnapshotId.value ? 'fixed' : 'latest',
+      snapshot_id: currentSnapshotId.value || undefined,
+      context: {
+        asset_id: currentAssetId.value,
+        chart: currentChart.value,
+        range: currentRange.value,
+        currency: currentCurrency.value,
+        benchmark_id: currentBenchmarkId.value,
+        snapshot_id: currentSnapshotId.value
+      }
+    })
+    uni.showToast({ title: '已收藏图表配置', icon: 'success' })
+  }
+  catch {
+    uni.showToast({ title: '收藏失败，请稍后重试', icon: 'none' })
+  }
+}
+
+function handleExportReport() {
+  const params = [
+    `asset_id=${encodeURIComponent(currentAssetId.value)}`,
+    `chart=${encodeURIComponent(currentChart.value)}`,
+    `range=${encodeURIComponent(currentRange.value)}`,
+    `currency=${encodeURIComponent(currentCurrency.value)}`
+  ]
+  if (currentSnapshotId.value)
+    params.push(`snapshot_id=${encodeURIComponent(currentSnapshotId.value)}`)
+  uni.navigateTo({
+    url: `/pages-sub/finance/report?${params.join('&')}`,
+    fail: () => {
+      uni.showToast({ title: '打开报告页失败', icon: 'none' })
+    }
+  })
+}
+
+function handleShareTrigger() {
+  const sharePath = `/pages-sub/divergence/index?asset_id=${encodeURIComponent(currentAssetId.value)}&chart=${encodeURIComponent(currentChart.value)}&range=${encodeURIComponent(currentRange.value)}&currency=${encodeURIComponent(currentCurrency.value)}`
+  // #ifdef H5
+  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+    navigator.clipboard.writeText(sharePath)
+      .then(() => uni.showToast({ title: '已复制分享路径', icon: 'success' }))
+      .catch(() => uni.showToast({ title: '请使用右上角分享', icon: 'none' }))
+    return
+  }
+  // #endif
+  uni.showToast({ title: '请点击右上角转发分享', icon: 'none' })
+}
+
+onShareAppMessage(() => {
+  return {
+    title: `${displayAssetName.value} · ${currentChartTitle.value}`,
+    path: `/pages-sub/divergence/index?asset_id=${encodeURIComponent(currentAssetId.value)}&chart=${encodeURIComponent(currentChart.value)}&range=${encodeURIComponent(currentRange.value)}&currency=${encodeURIComponent(currentCurrency.value)}`
+  }
+})
 </script>
 
 <template>
-  <view class="min-h-screen bg-[#090C0F] text-[#f1efea] px-3.5 py-2.5 pb-10 overflow-x-hidden max-w-full box-border">
-    <!-- 顶部导航栏 (100% 像素级复刻 media_1795534784283_9de3c953.png 顶部菜单触发器) -->
-    <view class="flex items-center justify-between py-2 border-b border-white/[0.08] mb-2.5 relative z-40">
-      <!-- 左侧返回按钮与资产路径 -->
-      <view class="flex items-center space-x-2" @tap="handleGoBack">
-        <view class="w-7 h-7 rounded-full bg-white/[0.06] flex items-center justify-center cursor-pointer active:scale-95 transition-all">
-          <text class="text-xs text-[#e5b352] font-bold">〈</text>
-        </view>
-        <view class="flex flex-col">
-          <text class="text-[9px] font-mono text-[#8d99a4]">{{ dataset.category_path }}</text>
-          <text class="text-xs font-bold text-[#f1efea] leading-tight">返回宏观仪表盘</text>
-        </view>
-      </view>
-
-      <!-- 中间可点击下拉菜单触发器: [◎ 当前趋势视角名 ⌄] (100% 对齐原图) -->
+  <view
+    class="min-h-screen flex flex-col box-border"
+    :class="isDark ? 'bg-[#090C0F] text-[#F1EFEA]' : 'cc-finance-light bg-[#F4F3EF] text-[#22292E]'"
+  >
+    <!-- 顶部胶囊安全区导航栏 -->
+    <view
+      class="sticky top-0 z-40 border-b"
+      :class="isDark ? 'bg-[#090C0F]/95 border-[#29313A]' : 'bg-[#F4F3EF]/95 border-[#DCDDD8]'"
+      :style="{ paddingTop: `${statusBarHeight}px` }"
+    >
       <view
-        class="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-white/[0.06] border border-white/[0.12] cursor-pointer active:scale-95 transition-all"
-        @tap="showDropdown = !showDropdown"
+        class="flex items-center justify-between px-2"
+        :style="{ height: `${navContentHeight}px`, paddingRight: `${capsuleRightPadding}px` }"
       >
-        <text class="text-xs text-[#e5b352] font-black">◎</text>
-        <text class="text-xs font-bold text-[#f1efea]">{{ currentViewTitle }}</text>
-        <text class="text-[10px] text-[#8d99a4] transform transition-transform" :class="showDropdown ? 'rotate-180' : ''">⌄</text>
+        <view class="flex items-center min-w-0 flex-1 gap-1">
+          <view
+            class="min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0 active:opacity-70"
+            @tap="handleGoBack"
+          >
+            <text class="text-[20px] font-medium leading-none">‹</text>
+          </view>
+          <view class="min-w-0 flex-1">
+            <text class="text-[15px] font-bold truncate block leading-tight">
+              {{ displayAssetName }}
+            </text>
+            <text class="text-[10px] font-mono block leading-tight" :class="isDark ? 'text-[#E5B352]' : 'text-[#8A641F]'">
+              {{ displayAsOfDate }}
+            </text>
+          </view>
+        </view>
+
+        <!-- 中右视角下拉触发器 -->
+        <view
+          class="flex items-center gap-1 px-2.5 py-1 rounded-full border shrink-0 active:scale-95 transition-transform"
+          :class="isDark ? 'bg-[#12181F] border-[#29313A]' : 'bg-white border-[#DCDDD8]'"
+          @tap="showDropdown = !showDropdown"
+        >
+          <text class="text-[11px]" :class="isDark ? 'text-[#E5B352]' : 'text-[#8A641F]'">◎</text>
+          <text class="text-[12px] font-bold">{{ currentChartTitle }}</text>
+          <text class="text-[10px]" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">⌄</text>
+        </view>
       </view>
 
-      <!-- 右侧日期高亮胶囊 (动态最新真实日期) -->
-      <text class="text-[10px] font-mono text-[#e5b352] bg-[#e5b352]/10 px-2 py-0.5 rounded border border-[#e5b352]/20">
-        {{ latestDateStr }}
-      </text>
+      <!-- 标的快捷切换 + 两行七图 Tab -->
+      <view class="px-3 pb-2 space-y-1.5">
+        <scroll-view scroll-x class="whitespace-nowrap w-full">
+          <view class="inline-flex items-center gap-1.5">
+            <text
+              v-for="asset in quickAssets"
+              :key="asset.id"
+              class="px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors"
+              :class="currentAssetId === asset.id
+                ? (isDark ? 'bg-[#E5B352] text-[#090C0F] font-bold' : 'bg-[#8A641F] text-white font-bold')
+                : (isDark ? 'bg-[#12181F] text-[#8D99A4] border border-[#29313A]' : 'bg-white text-[#515F6A] border border-[#DCDDD8]')"
+              @tap="currentAssetId = asset.id"
+            >
+              {{ asset.label }}
+            </text>
+          </view>
+        </scroll-view>
+
+        <!-- 两行七图切换 -->
+        <view class="space-y-1">
+          <view class="grid grid-cols-4 gap-1">
+            <view
+              v-for="tab in row1Tabs"
+              :key="tab.key"
+              class="py-1.5 rounded-lg text-center text-[11px] font-medium border transition-colors"
+              :class="[
+                currentChart === tab.key
+                  ? (isDark ? 'bg-[#E5B352]/20 border-[#E5B352] text-[#E5B352] font-bold' : 'bg-[#8A641F]/15 border-[#8A641F] text-[#8A641F] font-bold')
+                  : (isDark ? 'bg-[#12181F] border-[#29313A] text-[#8D99A4]' : 'bg-white border-[#DCDDD8] text-[#515F6A]'),
+                !isChartAvailable(tab.key) ? 'opacity-40' : ''
+              ]"
+              @tap="handleSelectChart(tab.key)"
+            >
+              {{ tab.shortLabel }}
+            </view>
+          </view>
+          <view class="grid grid-cols-3 gap-1">
+            <view
+              v-for="tab in row2Tabs"
+              :key="tab.key"
+              class="py-1.5 rounded-lg text-center text-[11px] font-medium border transition-colors"
+              :class="[
+                currentChart === tab.key
+                  ? (isDark ? 'bg-[#E5B352]/20 border-[#E5B352] text-[#E5B352] font-bold' : 'bg-[#8A641F]/15 border-[#8A641F] text-[#8A641F] font-bold')
+                  : (isDark ? 'bg-[#12181F] border-[#29313A] text-[#8D99A4]' : 'bg-white border-[#DCDDD8] text-[#515F6A]'),
+                !isChartAvailable(tab.key) ? 'opacity-40' : ''
+              ]"
+              @tap="handleSelectChart(tab.key)"
+            >
+              {{ tab.shortLabel }}
+            </view>
+          </view>
+        </view>
+      </view>
     </view>
 
-    <!-- 下拉弹出层 (100% 复刻原图) -->
+    <!-- 视角下拉菜单 -->
     <TrendMenuDropdown
       :visible="showDropdown"
-      :active-index="currentViewIndex"
-      @select="handleSelectView"
+      :current-chart="currentChart"
+      :available-charts="availableCharts"
+      @select="handleSelectChart"
       @close="showDropdown = false"
     />
 
-    <!-- 顶部资产与视角快捷状态胶囊条 -->
-    <view class="flex items-center justify-between gap-1 mb-3">
-      <!-- 独立资产切换器 -->
-      <view class="flex items-center space-x-1 bg-[#12181F] p-1 rounded-lg border border-white/[0.06]">
-        <text
-          v-for="opt in assetOptions"
-          :key="opt.id"
-          class="px-2 py-0.5 text-center text-[10px] rounded transition-all cursor-pointer select-none"
-          :class="currentDatasetId === opt.id ? 'bg-[#e5b352] text-[#090C0F] font-bold shadow-xs' : 'text-[#8d99a4]'"
-          @tap="currentDatasetId = opt.id"
-        >
-          {{ opt.label }}
-        </text>
-      </view>
+    <!-- 当前图表视图（按需懒挂载，独立页面滚动，避免 swiper 与 Canvas 手势冲突） -->
+    <view
+      class="flex-1 px-3.5 py-3"
+      :style="{ paddingBottom: `${76 + safeBottomPx}px` }"
+    >
+      <TrendCurveView
+        v-if="currentChart === 'curve'"
+        :asset-id="currentAssetId"
+        :snapshot-id="currentSnapshotId"
+        :range="currentRange"
+        :currency="currentCurrency"
+        :scope-id="currentScopeId"
+        :benchmark-id="currentBenchmarkId"
+      />
+      <AnnualTrendView
+        v-else-if="currentChart === 'annual'"
+        :asset-id="currentAssetId"
+        :snapshot-id="currentSnapshotId"
+        :range="currentRange"
+        :currency="currentCurrency"
+        :scope-id="currentScopeId"
+        :benchmark-id="currentBenchmarkId"
+      />
+      <ComponentTrendView
+        v-else-if="currentChart === 'components'"
+        :asset-id="currentAssetId"
+        :snapshot-id="currentSnapshotId"
+        :range="currentRange"
+        :currency="currentCurrency"
+        :scope-id="currentScopeId"
+        :benchmark-id="currentBenchmarkId"
+      />
+      <TrendDashboardView
+        v-else-if="currentChart === 'dashboard'"
+        :asset-id="currentAssetId"
+        :snapshot-id="currentSnapshotId"
+        :range="currentRange"
+        :currency="currentCurrency"
+        :scope-id="currentScopeId"
+        :benchmark-id="currentBenchmarkId"
+      />
+      <SolarTermsView
+        v-else-if="currentChart === 'season'"
+        :asset-id="currentAssetId"
+        :snapshot-id="currentSnapshotId"
+        :range="currentRange"
+        :currency="currentCurrency"
+        :scope-id="currentScopeId"
+        :benchmark-id="currentBenchmarkId"
+      />
+      <RightDistributionView
+        v-else-if="currentChart === 'distribution'"
+        :asset-id="currentAssetId"
+        :snapshot-id="currentSnapshotId"
+        :range="currentRange"
+        :currency="currentCurrency"
+        :scope-id="currentScopeId"
+        :benchmark-id="currentBenchmarkId"
+      />
+      <TrendTierView
+        v-else-if="currentChart === 'tier'"
+        :asset-id="currentAssetId"
+        :snapshot-id="currentSnapshotId"
+        :range="currentRange"
+        :currency="currentCurrency"
+        :scope-id="currentScopeId"
+        :benchmark-id="currentBenchmarkId"
+      />
+    </view>
 
-      <!-- 6 视角页码圆点指示器 (支持左右滑动) -->
-      <view class="flex items-center space-x-1 bg-[#12181F] px-2 py-1.5 rounded-lg border border-white/[0.06]">
-        <text class="text-[9px] text-[#8d99a4] mr-0.5">滑动切视角</text>
+    <!-- 底部工具栏 -->
+    <view
+      class="fixed bottom-0 left-0 right-0 z-30 border-t px-3"
+      :class="isDark ? 'bg-[#090C0F]/95 border-[#29313A]' : 'bg-white/95 border-[#DCDDD8]'"
+      :style="{ paddingBottom: `${safeBottomPx}px` }"
+    >
+      <view class="grid grid-cols-4 gap-2 h-[54px] items-center">
         <view
-          v-for="(t, i) in viewTitles"
-          :key="i"
-          class="w-1.5 h-1.5 rounded-full transition-all cursor-pointer"
-          :class="currentViewIndex === i ? 'w-3 bg-[#e5b352]' : 'bg-white/[0.18]'"
-          @tap="currentViewIndex = i"
-        />
+          class="min-h-[44px] flex flex-col items-center justify-center rounded-lg active:opacity-70"
+          @tap="handleSaveFavoriteChart"
+        >
+          <text class="text-[12px] font-medium" :class="isDark ? 'text-[#E5B352]' : 'text-[#8A641F]'">
+            ★ 收藏图表
+          </text>
+        </view>
+        <view
+          class="min-h-[44px] flex flex-col items-center justify-center rounded-lg active:opacity-70"
+          @tap="handleShareTrigger"
+        >
+          <text class="text-[12px] font-medium" :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+            分享
+          </text>
+        </view>
+        <view
+          class="min-h-[44px] flex flex-col items-center justify-center rounded-lg active:opacity-70"
+          @tap="handleExportReport"
+        >
+          <text class="text-[12px] font-medium" :class="isDark ? 'text-[#F1EFEA]' : 'text-[#22292E]'">
+            导出报告
+          </text>
+        </view>
+        <view
+          class="min-h-[44px] flex flex-col items-center justify-center rounded-lg active:opacity-70"
+          @tap="showConfigModal = true"
+        >
+          <text class="text-[12px] font-medium" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+            参数配置
+          </text>
+        </view>
       </view>
     </view>
 
-    <!-- 核心滑动容器：左右滑动无缝切换 6 大趋势视角 -->
-    <swiper
-      class="w-full min-h-[780px]"
-      :current="currentViewIndex"
-      :duration="260"
-      @change="onSwiperChange"
-    >
-      <!-- 视角 1: 趋势曲线 -->
-      <swiper-item class="overflow-y-auto">
-        <TrendCurveView
-          :dataset-title="dataset.title"
-          :as-of-date="latestDateStr"
-        />
-      </swiper-item>
+    <!-- 参数配置弹层 -->
+    <view v-if="showConfigModal" class="fixed inset-0 z-50 flex items-end justify-center">
+      <view class="fixed inset-0 bg-black/60" @tap="showConfigModal = false" />
+      <view
+        class="relative w-full rounded-t-2xl border-t p-4 space-y-4 z-10"
+        :class="isDark ? 'bg-[#12181F] border-[#29313A] text-[#F1EFEA]' : 'bg-white border-[#DCDDD8] text-[#22292E]'"
+        :style="{ paddingBottom: `${20 + safeBottomPx}px` }"
+      >
+        <view class="flex items-center justify-between">
+          <text class="text-[16px] font-bold">图表参数配置</text>
+          <text
+            class="px-3 py-1 rounded-lg text-[12px] font-bold"
+            :class="isDark ? 'bg-[#E5B352] text-[#090C0F]' : 'bg-[#8A641F] text-white'"
+            @tap="showConfigModal = false"
+          >
+            完成
+          </text>
+        </view>
 
-      <!-- 视角 2: 年度价格走势 -->
-      <swiper-item class="overflow-y-auto">
-        <AnnualTrendView
-          :dataset-title="dataset.title"
-        />
-      </swiper-item>
+        <view class="space-y-1.5">
+          <text class="text-[12px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+            时间范围
+          </text>
+          <view class="flex flex-wrap gap-2">
+            <text
+              v-for="r in (assetDetail?.available_ranges?.length ? assetDetail.available_ranges : ['3M', '6M', '1Y', '3Y', 'ALL'])"
+              :key="r"
+              class="px-3 py-1.5 rounded-lg text-[12px] font-mono border"
+              :class="currentRange === r
+                ? (isDark ? 'bg-[#E5B352] border-[#E5B352] text-[#090C0F] font-bold' : 'bg-[#8A641F] border-[#8A641F] text-white font-bold')
+                : (isDark ? 'border-[#29313A] text-[#8D99A4]' : 'border-[#DCDDD8] text-[#515F6A]')"
+              @tap="currentRange = r"
+            >
+              {{ r }}
+            </text>
+          </view>
+        </view>
 
-      <!-- 视角 3: 品种成分趋势 (已完美复刻的贝塞尔平滑分化曲线 + 截面多维排行表) -->
-      <swiper-item class="overflow-y-auto">
-        <ComponentTrendView
-          :dataset="dataset"
-          :as-of-date="latestDateStr"
-        />
-      </swiper-item>
-
-      <!-- 视角 4: 趋势仪表盘 -->
-      <swiper-item class="overflow-y-auto">
-        <TrendDashboardView
-          :dataset-title="dataset.title"
-        />
-      </swiper-item>
-
-      <!-- 视角 5: 趋势节气图 -->
-      <swiper-item class="overflow-y-auto">
-        <SolarTermsView
-          :dataset-title="dataset.title"
-        />
-      </swiper-item>
-
-      <!-- 视角 6: 右侧分布图 (100% 像素级复刻 media_1795534905662_70f9934e.jpg Treemap 树图) -->
-      <swiper-item class="overflow-y-auto">
-        <RightDistributionView
-          :dataset-id="currentDatasetId"
-          :as-of-date="latestDateStr"
-        />
-      </swiper-item>
-    </swiper>
+        <view class="space-y-1.5">
+          <text class="text-[12px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]'">
+            计价币种
+          </text>
+          <view class="flex flex-wrap gap-2">
+            <text
+              v-for="c in (assetDetail?.available_currencies?.length ? assetDetail.available_currencies : ['CNY', 'USD', 'HKD', 'RAW'])"
+              :key="c"
+              class="px-3 py-1.5 rounded-lg text-[12px] font-mono border"
+              :class="currentCurrency === c
+                ? (isDark ? 'bg-[#E5B352] border-[#E5B352] text-[#090C0F] font-bold' : 'bg-[#8A641F] border-[#8A641F] text-white font-bold')
+                : (isDark ? 'border-[#29313A] text-[#8D99A4]' : 'border-[#DCDDD8] text-[#515F6A]')"
+              @tap="currentCurrency = c"
+            >
+              {{ c }}
+            </text>
+          </view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
-
-<style scoped>
-/* 隐藏原生滚动条 */
-::-webkit-scrollbar {
-  display: none;
-  width: 0 !important;
-  height: 0 !important;
-  -webkit-appearance: none;
-  background: transparent;
-}
-</style>

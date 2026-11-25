@@ -44,3 +44,31 @@
 - [x] **Phase 7：预发布与平滑灰度切流** (产出 `docs/migration/10-deployment-plan.md`, `11-rollback-plan.md`, OpenResty 热重载)
 - [x] **Phase 8：生产验证、旧服务退役与交付** (产出 `docs/migration/12-production-verification.md`, `13-final-report.md`, 清理旧 Python 镜像容器)
 - [x] **Phase 9：HTTP/3 支持与协议栈/缓存架构极致优化** (产出 `docs/migration/14-advanced-performance-tuning.md`, 全量 22 项深度调优实测上线)
+
+
+---
+
+# 周期罗盘 CycleCompass V4 金融资产与量化趋势研究模块 Goal 进度
+
+> 基线提交：`d1a322d8b1c7cea783a21d54db936da7a89cb308`（2026-11-25）
+
+## 阶段总览
+
+| 阶段 | 内容 | 状态 | 说明 |
+|---|---|---|---|
+| **G0** | 最新源码扫描、基线测试、需求差距分析 | `COMPLETED` | 已完整读取 V4 设计包与当前源码，完成基线测试与差距矩阵 |
+| **G1** | 金融资产数据底座、资产分类、历史行情和数据库建设 | `COMPLETED` | A2(`catalog_seed.go`, `history_provider.go`) 与 A4(`migrations.go`, `trend_store.go`) 全部通过单测 |
+| **G2** | 量化算法引擎、Go API、数据质量及计算快照 | `COMPLETED` | A3(`internal/trend`) 与 A4(`dto/trend.go`, `trend_service.go`, `trend_handler.go`, `router.go`, `main.go`) 全部通过 `go test ./... && go vet ./...` |
+| **G3** | 金融资产入口、大类资产、分类列表、搜索和详情页 | `COMPLETED` | A5 已完成 `TabMarkets.vue` 入口、`FinanceShell`、`TrendTempBadge`、`AssetRow`、`finance/{index,asset,search}.vue` (0 lint / 0 type error) |
+| **G4** | 七大核心趋势研究图表 | `COMPLETED` | A6(`TrendLineCanvas`, `TrendCurveView`, `AnnualTrendView`, `ComponentTrendView`, `divergence/index.vue`) 与 A7(`TrendDashboardView`, `SolarTermsView`, `RightDistributionView`, `TrendTierView`, `TrendMenuDropdown`) 全部完成 (0 lint error) |
+| **G5** | 高清报告、收藏、分享、主题和研究设置 | `COMPLETED` | A8 已完成 `.cc-finance-light` 主题与 `favorites/settings/data-status/methodology/report` (0 lint error) |
+| **G6** | 完整功能集成、UI 对比、自动化测试及性能优化 | `COMPLETED` | 已通过 Go+H5 本地联调及 Browser Subagent 375×812 实测对比，修复 `sort=strength`、详情页 Canvas 复用、工作台路由与标题重复等 4 项问题，Python(18/18)、Go(5包)、Vitest(74/74)、H5/MP 构建全绿 |
+| **G7** | 根据依赖和优先级实施差异化增强功能 (P1) | `DEFERRED` | P0 全部闭环，P1（周期轮动罗盘、趋势事件中心、自定义观察池等）保留在下一迭代，未以 UI 占位充数 |
+| **G8** | 全局 Review、查漏补缺、多轮修复及最终交付 | `COMPLETED` | 已完成代码/数据/安全/回归全面复核与文档交付，剩余微信真机截图与商用行情授权门禁如实记录为外部阻塞 |
+
+## G0 复用/替换/新增/延期矩阵摘要
+
+- **保留复用**：`pages/index/index.vue` 四 Tab、`TabMarkets.vue` 原有四大宏观子页、`http/`、`router/`、`BaseLayout`、`api/cycle.ts` SWR 缓存、`services/api-go` 既有 11 个 API 及 SQLite 账本表。
+- **增量升级**：`pages-sub/divergence/index.vue`（七图工作台 + 兼容旧 `id`/`view` 参数）、`components/trend/*`（6 个组件真实数据化 + 新增 `TrendTierView`）、`DivergenceChart.vue`（抽离纯几何/Canvas 2D 内核）、`stores/theme.ts` & `app.css`（金融作用域浅色/跟随系统主题）。
+- **新增模块**：`services/api-go/internal/trend`、SQLite 增量迁移、`pages-sub/finance/{index,asset,search,favorites,report,settings,data-status,methodology}`、`src/api/trend.ts`、`src/stores/finance.ts`。
+- **延期/边界**：BTC/虚拟货币、未上市公司、期权与房产不上线；未获商用授权数据源标记 `not_covered` 或 `offline_seed`。

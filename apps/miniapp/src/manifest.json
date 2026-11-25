@@ -2,8 +2,8 @@
   "name": "cycle-compass-miniapp-release",
   "appid": "",
   "description": "周期罗盘 CycleCompass 微信小程序前端，基于 uni-app + Vue 3 + TypeScript + Tailwind CSS v4 + weapp-tailwindcss v5 + Compass UI",
-  "versionName": "1.0.2026112502",
-  "versionCode": "2026112502",
+  "versionName": "1.0.2026112504",
+  "versionCode": "2026112504",
   "transformPx": false,
   "app-plus": {
     "usingComponents": true,
