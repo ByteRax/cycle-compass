@@ -39,6 +39,10 @@ type BacktestSummary struct {
 	ZoneDistribution   map[string]int `json:"zone_distribution"`
 	TotalRebuyCount    int            `json:"total_rebuy_count"`
 	LedgerEntriesCount int            `json:"ledger_entries_count"`
+	RuleVersion        string         `json:"rule_version,omitempty"`
+	DataSource         string         `json:"data_source,omitempty"`
+	ExecutionTiming    string         `json:"execution_timing,omitempty"`
+	ClipReason         string         `json:"clip_reason,omitempty"`
 }
 
 type BacktestOutput struct {

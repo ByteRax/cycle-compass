@@ -226,7 +226,11 @@ export const httpInterceptor: RequestInterceptor = {
         debugLogResponse(options, response, dataObj, responseCode === 0, responseMsg)
       }
     } else {
-      responseMsg = handleNetworkError(statusCode, '')
+      const errObj = parse<any>(data)
+      const serverMsg = errObj?.errorMsg ?? errObj?.message ?? ''
+      if (errObj?.errorCode !== undefined || errObj?.code !== undefined)
+        responseCode = errObj.errorCode ?? errObj.code
+      responseMsg = handleNetworkError(statusCode, serverMsg)
       debugLogResponse(options, response, data, false, responseMsg)
     }
     responseData.code = responseCode

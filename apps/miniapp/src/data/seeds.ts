@@ -26,11 +26,23 @@ export interface FxQuoteItem {
 }
 
 export interface UserPortfolioTx {
+  id?: string
   date: string
+  week_key?: string
   event_type: string
   target_name: string
+  symbol?: string | null
   amount: number
   description: string
+  shares?: number
+  price?: number
+  cash_delta?: number
+  cash_pool_delta?: number
+  cash_balance_after?: number
+  cash_pool_after?: number
+  source?: string
+  unverified?: boolean
+  [key: string]: any
 }
 
 export interface UserPortfolioState {
@@ -46,42 +58,42 @@ export interface UserPortfolioState {
 }
 
 export const SEED_GLOBAL_ECONOMIC_DATA: MarketQuote[] = [
-  { symbol: 'BRENT', name: '布伦特原油', category: 'global', price: 87.19, change: 0.50, change_pct: 0.58, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'ICE/Yahoo', symbol: 'BRENT', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { symbol: 'VIX', name: '恐慌指数', category: 'global', price: 28.67, change: 2.06, change_pct: 7.74, currency: '', as_of: '2026-11-24', meta: { source_name: 'CBOE/Yahoo', symbol: 'VIX', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { symbol: 'DXY', name: '美元指数', category: 'fx', price: 103.98, change: 0.04, change_pct: 0.04, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'ICE/Yahoo', symbol: 'DXY', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { symbol: 'US20Y', name: '美债长债', category: 'bond', price: 81.69, change: 0.24, change_pct: 0.29, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'CBOE/Yahoo', symbol: 'US20Y', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { symbol: 'GOLD_OZ', name: '黄金盎司', category: 'commodity', price: 3624.33, change: -10.87, change_pct: -0.30, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'COMEX/Yahoo', symbol: 'GOLD_OZ', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { symbol: 'ICNYXAU', name: '人民币账户黄金', category: 'commodity', price: 628.50, change: 2.15, change_pct: 0.34, currency: '元/克', as_of: '2026-11-24', meta: { source_name: '工行/新浪', symbol: 'ICNYXAU', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { symbol: 'SILVER_OZ', name: '白银盎司', category: 'commodity', price: 42.24, change: -0.91, change_pct: -2.11, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'COMEX/Yahoo', symbol: 'SILVER_OZ', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { symbol: 'COPPER_HG', name: '铜', category: 'commodity', price: 551.57, change: -20.65, change_pct: -3.61, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'COMEX/Yahoo', symbol: 'COPPER_HG', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { symbol: 'NATGAS', name: '天然气', category: 'commodity', price: 3.60, change: 0.08, change_pct: 2.21, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'NYMEX/Yahoo', symbol: 'NATGAS', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } }
+  { symbol: 'BRENT', name: '布伦特原油', category: 'global', price: 87.19, change: 0.50, change_pct: 0.58, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'ICE/Yahoo', symbol: 'BRENT', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { symbol: 'VIX', name: '恐慌指数', category: 'global', price: 28.67, change: 2.06, change_pct: 7.74, currency: '', as_of: '2026-11-24', meta: { source_name: 'CBOE/Yahoo', symbol: 'VIX', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { symbol: 'DXY', name: '美元指数', category: 'fx', price: 103.98, change: 0.04, change_pct: 0.04, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'ICE/Yahoo', symbol: 'DXY', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { symbol: 'US20Y', name: '美债长债', category: 'bond', price: 81.69, change: 0.24, change_pct: 0.29, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'CBOE/Yahoo', symbol: 'US20Y', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { symbol: 'GOLD_OZ', name: '黄金盎司', category: 'commodity', price: 3624.33, change: -10.87, change_pct: -0.30, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'COMEX/Yahoo', symbol: 'GOLD_OZ', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { symbol: 'ICNYXAU', name: '人民币账户黄金', category: 'commodity', price: 628.50, change: 2.15, change_pct: 0.34, currency: '元/克', as_of: '2026-11-24', meta: { source_name: '工行/新浪', symbol: 'ICNYXAU', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { symbol: 'SILVER_OZ', name: '白银盎司', category: 'commodity', price: 42.24, change: -0.91, change_pct: -2.11, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'COMEX/Yahoo', symbol: 'SILVER_OZ', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { symbol: 'COPPER_HG', name: '铜', category: 'commodity', price: 551.57, change: -20.65, change_pct: -3.61, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'COMEX/Yahoo', symbol: 'COPPER_HG', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { symbol: 'NATGAS', name: '天然气', category: 'commodity', price: 3.60, change: 0.08, change_pct: 2.21, currency: 'USD', as_of: '2026-11-24', meta: { source_name: 'NYMEX/Yahoo', symbol: 'NATGAS', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } }
 ]
 
 export const SEED_SECTOR_LIST: IndustryMetric[] = [
-  { sector_id: 'ai_compute', name: 'AI算力', price_change_pct: -4.22, stage: '繁荣期', prosperity_score: 95.0, price_index: 95.78, unit: '点', catalyst: '前沿大模型持续迭代，美股盘前震荡', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'ai_compute', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'cpo', name: 'CPO', price_change_pct: -3.57, stage: '繁荣期', prosperity_score: 92.5, price_index: 96.43, unit: '点', catalyst: '1.6T光模块与硅光渗透加速交付', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'cpo', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'semiconductor', name: '半导体', price_change_pct: -3.93, stage: '复苏上行', prosperity_score: 88.0, price_index: 96.07, unit: '点', catalyst: '先进制程与汽车芯片需求拉动', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'semiconductor', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'storage', name: '存储', price_change_pct: -5.39, stage: '景气高位', prosperity_score: 90.0, price_index: 94.61, unit: '点', catalyst: 'HBM与大容量DRAM/NAND价格坚挺', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'storage', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'datacenter', name: '数据中心', price_change_pct: -1.76, stage: '稳步扩张', prosperity_score: 84.0, price_index: 98.24, unit: '点', catalyst: '智算中心IDC规模化交付上架', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'datacenter', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'cloud', name: '云计算', price_change_pct: -1.70, stage: '成熟增长', prosperity_score: 80.0, price_index: 98.30, unit: '点', catalyst: '企业AI工作负载云化转型', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'cloud', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'commercial_aerospace', name: '商业航天', price_change_pct: -2.12, stage: '早期爆发', prosperity_score: 78.0, price_index: 97.88, unit: '点', catalyst: '商业火箭发射密集，商业化在即', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'commercial_aerospace', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'satellite', name: '卫星', price_change_pct: -0.80, stage: '早期爆发', prosperity_score: 77.0, price_index: 99.20, unit: '点', catalyst: '低轨互联网星座批量组网', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'satellite', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'robotics', name: '机器人', price_change_pct: -1.89, stage: '技术突破', prosperity_score: 82.0, price_index: 98.11, unit: '点', catalyst: '具身智能本体与轻量关节迭代', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'robotics', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'autonomous_driving', name: '自动驾驶', price_change_pct: -1.63, stage: '规模试点', prosperity_score: 85.0, price_index: 98.37, unit: '点', catalyst: '端到端智驾与Robotaxi商业化', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'autonomous_driving', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'nuclear_power', name: '核电', price_change_pct: -1.73, stage: '稳健扩张', prosperity_score: 76.0, price_index: 98.27, unit: '点', catalyst: '清洁基荷能源与三代四代核电开工', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'nuclear_power', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'power_grid', name: '电网', price_change_pct: -0.95, stage: '建设高峰', prosperity_score: 79.0, price_index: 99.05, unit: '点', catalyst: '特高压外送通道与配电网智能化改造', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'power_grid', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'military', name: '军工', price_change_pct: 0.06, stage: '周期底部', prosperity_score: 72.0, price_index: 100.06, unit: '点', catalyst: '新型号列装与订单复苏预期', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'military', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'new_energy', name: '新能源', price_change_pct: -1.40, stage: '出清修复', prosperity_score: 68.0, price_index: 98.60, unit: '点', catalyst: '风光储一体化海外需求稳健', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'new_energy', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'solar', name: '光伏', price_change_pct: 0.25, stage: '供给见底', prosperity_score: 71.0, price_index: 100.25, unit: '点', catalyst: '产业链价格企稳与落后产能加速出清', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'solar', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'lithium_battery', name: '锂电池', price_change_pct: -0.85, stage: '逐步筑底', prosperity_score: 73.0, price_index: 99.15, unit: '点', catalyst: '储能出货爆发与碳酸锂库存去化', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'lithium_battery', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'petroleum', name: '石油', price_change_pct: 0.70, stage: '高位震荡', prosperity_score: 75.0, price_index: 100.70, unit: '点', catalyst: 'OPEC+受控减产与地缘溢价支持', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'petroleum', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'natural_gas', name: '天然气', price_change_pct: 2.21, stage: '震荡下行', prosperity_score: 65.0, price_index: 102.21, unit: '点', catalyst: '库存相对充裕与季节性淡季', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'natural_gas', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'copper_metal', name: '铜 / 有色', price_change_pct: 0.02, stage: '高位景气', prosperity_score: 83.0, price_index: 100.02, unit: '点', catalyst: '电网改造与AI能耗高用铜驱动', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'copper_metal', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'gold', name: '黄金', price_change_pct: 1.05, stage: '避险繁荣', prosperity_score: 89.0, price_index: 101.05, unit: '点', catalyst: '央行持续购金与全球去美元化叙事', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'gold', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'banking', name: '银行金融', price_change_pct: 0.11, stage: '防守稳定', prosperity_score: 69.0, price_index: 100.11, unit: '点', catalyst: '高股息资产防御与资产质量稳健', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'banking', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'biomedicine', name: '生物医药', price_change_pct: -0.09, stage: '估值消化', prosperity_score: 67.0, price_index: 99.91, unit: '点', catalyst: '创新药出海提速但短期震荡', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'biomedicine', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'consumption', name: '消费', price_change_pct: 0.26, stage: '弱复苏', prosperity_score: 64.0, price_index: 100.26, unit: '点', catalyst: '以旧换新政策驱动与性价比消费', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'consumption', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } },
-  { sector_id: 'rare_earth', name: '稀土', price_change_pct: -0.15, stage: '底部企稳', prosperity_score: 74.0, price_index: 99.85, unit: '点', catalyst: '出口配额调控与人形机器人磁材需求', as_of: '2026-11-24', meta: { source_name: '实时跟踪', symbol: 'rare_earth', as_of: '2026-11-24', status: 'online_sync', updated_at: '' } }
+  { sector_id: 'ai_compute', name: 'AI算力', price_change_pct: -4.22, stage: '繁荣期', prosperity_score: 95.0, price_index: 95.78, unit: '点', catalyst: '前沿大模型持续迭代，美股盘前震荡', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'ai_compute', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'cpo', name: 'CPO', price_change_pct: -3.57, stage: '繁荣期', prosperity_score: 92.5, price_index: 96.43, unit: '点', catalyst: '1.6T光模块与硅光渗透加速交付', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'cpo', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'semiconductor', name: '半导体', price_change_pct: -3.93, stage: '复苏上行', prosperity_score: 88.0, price_index: 96.07, unit: '点', catalyst: '先进制程与汽车芯片需求拉动', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'semiconductor', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'storage', name: '存储', price_change_pct: -5.39, stage: '景气高位', prosperity_score: 90.0, price_index: 94.61, unit: '点', catalyst: 'HBM与大容量DRAM/NAND价格坚挺', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'storage', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'datacenter', name: '数据中心', price_change_pct: -1.76, stage: '稳步扩张', prosperity_score: 84.0, price_index: 98.24, unit: '点', catalyst: '智算中心IDC规模化交付上架', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'datacenter', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'cloud', name: '云计算', price_change_pct: -1.70, stage: '成熟增长', prosperity_score: 80.0, price_index: 98.30, unit: '点', catalyst: '企业AI工作负载云化转型', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'cloud', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'commercial_aerospace', name: '商业航天', price_change_pct: -2.12, stage: '早期爆发', prosperity_score: 78.0, price_index: 97.88, unit: '点', catalyst: '商业火箭发射密集，商业化在即', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'commercial_aerospace', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'satellite', name: '卫星', price_change_pct: -0.80, stage: '早期爆发', prosperity_score: 77.0, price_index: 99.20, unit: '点', catalyst: '低轨互联网星座批量组网', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'satellite', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'robotics', name: '机器人', price_change_pct: -1.89, stage: '技术突破', prosperity_score: 82.0, price_index: 98.11, unit: '点', catalyst: '具身智能本体与轻量关节迭代', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'robotics', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'autonomous_driving', name: '自动驾驶', price_change_pct: -1.63, stage: '规模试点', prosperity_score: 85.0, price_index: 98.37, unit: '点', catalyst: '端到端智驾与Robotaxi商业化', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'autonomous_driving', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'nuclear_power', name: '核电', price_change_pct: -1.73, stage: '稳健扩张', prosperity_score: 76.0, price_index: 98.27, unit: '点', catalyst: '清洁基荷能源与三代四代核电开工', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'nuclear_power', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'power_grid', name: '电网', price_change_pct: -0.95, stage: '建设高峰', prosperity_score: 79.0, price_index: 99.05, unit: '点', catalyst: '特高压外送通道与配电网智能化改造', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'power_grid', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'military', name: '军工', price_change_pct: 0.06, stage: '周期底部', prosperity_score: 72.0, price_index: 100.06, unit: '点', catalyst: '新型号列装与订单复苏预期', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'military', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'new_energy', name: '新能源', price_change_pct: -1.40, stage: '出清修复', prosperity_score: 68.0, price_index: 98.60, unit: '点', catalyst: '风光储一体化海外需求稳健', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'new_energy', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'solar', name: '光伏', price_change_pct: 0.25, stage: '供给见底', prosperity_score: 71.0, price_index: 100.25, unit: '点', catalyst: '产业链价格企稳与落后产能加速出清', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'solar', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'lithium_battery', name: '锂电池', price_change_pct: -0.85, stage: '逐步筑底', prosperity_score: 73.0, price_index: 99.15, unit: '点', catalyst: '储能出货爆发与碳酸锂库存去化', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'lithium_battery', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'petroleum', name: '石油', price_change_pct: 0.70, stage: '高位震荡', prosperity_score: 75.0, price_index: 100.70, unit: '点', catalyst: 'OPEC+受控减产与地缘溢价支持', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'petroleum', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'natural_gas', name: '天然气', price_change_pct: 2.21, stage: '震荡下行', prosperity_score: 65.0, price_index: 102.21, unit: '点', catalyst: '库存相对充裕与季节性淡季', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'natural_gas', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'copper_metal', name: '铜 / 有色', price_change_pct: 0.02, stage: '高位景气', prosperity_score: 83.0, price_index: 100.02, unit: '点', catalyst: '电网改造与AI能耗高用铜驱动', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'copper_metal', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'gold', name: '黄金', price_change_pct: 1.05, stage: '避险繁荣', prosperity_score: 89.0, price_index: 101.05, unit: '点', catalyst: '央行持续购金与全球去美元化叙事', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'gold', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'banking', name: '银行金融', price_change_pct: 0.11, stage: '防守稳定', prosperity_score: 69.0, price_index: 100.11, unit: '点', catalyst: '高股息资产防御与资产质量稳健', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'banking', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'biomedicine', name: '生物医药', price_change_pct: -0.09, stage: '估值消化', prosperity_score: 67.0, price_index: 99.91, unit: '点', catalyst: '创新药出海提速但短期震荡', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'biomedicine', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'consumption', name: '消费', price_change_pct: 0.26, stage: '弱复苏', prosperity_score: 64.0, price_index: 100.26, unit: '点', catalyst: '以旧换新政策驱动与性价比消费', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'consumption', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } },
+  { sector_id: 'rare_earth', name: '稀土', price_change_pct: -0.15, stage: '底部企稳', prosperity_score: 74.0, price_index: 99.85, unit: '点', catalyst: '出口配额调控与人形机器人磁材需求', as_of: '2026-11-24', meta: { source_name: '离线参考基准', symbol: 'rare_earth', as_of: '2026-11-24', status: 'offline_seed', updated_at: '' } }
 ]
 
 export const SEED_KR_MACRO = [

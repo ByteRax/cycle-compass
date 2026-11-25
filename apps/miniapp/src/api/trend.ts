@@ -1,12 +1,14 @@
 import type {
   AnnualTrendResponse,
   AssetDetailResponse,
-  AssetSummaryItem,
+  AssetEnumsResponse,
   CatalogResponse,
   ComponentTrendResponse,
   DataStatusResponse,
   MembersResponse,
   MethodologyResponse,
+  PeriodMatrixResponse,
+  SearchAssetsResponse,
   SnapshotMeta,
   TrendCurveResponse,
   TrendDashboardResponse,
@@ -21,6 +23,10 @@ const requestOpts = {
 meta: { loading: false, toast: false }
 }
 
+export function getAssetEnums() {
+  return http.get<AssetEnumsResponse>('/api/v1/assets/enums', undefined, requestOpts)
+}
+
 export function getAssetCatalog(params?: { scope_id?: string, currency?: string }) {
   return http.get<CatalogResponse>('/api/v1/assets/catalog', params, requestOpts)
 }
@@ -30,7 +36,7 @@ export function getAssetUniverses() {
 }
 
 export function searchAssets(params: { q: string, type?: string, cursor?: string, limit?: number }) {
-  return http.get<{ items: AssetSummaryItem[], next_cursor: string | null, total: number }>('/api/v1/assets/search', params, requestOpts)
+  return http.get<SearchAssetsResponse>('/api/v1/assets/search', params, requestOpts)
 }
 
 export function getAssetDetail(id: string, params?: { scope_id?: string, currency?: string, snapshot_id?: string }) {
@@ -46,6 +52,11 @@ export function getAssetMembers(
     cursor?: string
     limit?: number
     currency?: string
+    snapshot_id?: string
+    market?: string
+    asset_type?: string
+    status?: string
+    q?: string
   }
 ) {
   return http.get<MembersResponse>(`/api/v1/assets/${encodeURIComponent(id)}/members`, params, requestOpts)
@@ -63,6 +74,8 @@ export function getTrendCurve(
     currency?: string
     benchmark_id?: string
     snapshot_id?: string
+    start_date?: string
+    end_date?: string
   }
 ) {
   return http.get<TrendCurveResponse>(`/api/v1/trends/${encodeURIComponent(id)}/curve`, params, requestOpts)
@@ -158,4 +171,22 @@ export function getTrendMethodology() {
 
 export function getTrendDataStatus() {
   return http.get<DataStatusResponse>('/api/v1/trends/data-status', undefined, requestOpts)
+}
+
+export function getPeriodMatrix(
+  id: string,
+  params?: {
+    snapshot_id?: string
+    currency?: string
+    market?: string
+    asset_type?: string
+    status?: string
+    q?: string
+    sort?: string
+    order?: 'asc' | 'desc'
+    cursor?: string
+    limit?: number
+  }
+) {
+  return http.get<PeriodMatrixResponse>(`/api/v1/trends/${encodeURIComponent(id)}/matrix`, params, requestOpts)
 }

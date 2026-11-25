@@ -1,9 +1,11 @@
 <script lang="ts" setup>
 import type { SeasonStageBucket, TrendSeasonResponse } from '@/api/types/trend'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getTrendSeason } from '@/api/trend'
 import TrendTempBadge from '@/components/finance/TrendTempBadge.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace, unwrapApiResponse } from '@/utils/asyncRace'
+import { buildFinanceUrl } from '@/utils/financeRoute'
 
 interface Props {
   assetId: string
@@ -35,9 +37,16 @@ const FILTER_OPTIONS: Array<{ key: 'all' | 'up' | 'down', label: string }> = [
   { key: 'down', label: '下行阶段' }
 ]
 
+const race = createAsyncRace()
+
+onUnmounted(() => {
+  race.invalidate()
+})
+
 async function fetchData () {
   if (!props.assetId)
     return
+  const token = race.next()
   loading.value = true
   errorMsg.value = ''
   try {
@@ -45,7 +54,9 @@ async function fetchData () {
       direction: directionFilter.value,
       snapshot_id: props.snapshotId
     })
-    const payload = res.data ?? null
+    if (!race.isLatest(token))
+      return
+    const payload = unwrapApiResponse(res, '趋势节气图加载失败')
     data.value = payload
     // 默认展开成员数 > 0 的第一个阶段
     const firstNonEmpty = payload?.stages.find(s => s.count > 0)
@@ -54,11 +65,14 @@ async function fetchData () {
     }
   }
   catch (err: any) {
+    if (!race.isLatest(token))
+      return
     errorMsg.value = err?.message || '趋势节气图加载失败'
     data.value = null
   }
   finally {
-    loading.value = false
+    if (race.isLatest(token))
+      loading.value = false
   }
 }
 
@@ -122,7 +136,14 @@ function toggleStage (stageKey: string) {
 
 function navigateToAsset (assetId: string) {
   uni.navigateTo({
-    url: `/pages-sub/finance/asset?id=${encodeURIComponent(assetId)}`
+    url: buildFinanceUrl('/pages-sub/finance/asset', {
+      asset_id: assetId,
+      scope_id: props.scopeId || props.assetId,
+      currency: (props.currency as any) || undefined,
+      range: (props.range as any) || undefined,
+      snapshot_mode: props.snapshotId ? 'fixed' : 'latest',
+      snapshot_id: props.snapshotId || ''
+    })
   })
 }
 

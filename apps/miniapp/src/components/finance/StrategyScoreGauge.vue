@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import type { ScoreFactor } from '@/api/cycle'
 import { computed, ref } from 'vue'
 
 defineOptions({
@@ -18,6 +19,9 @@ const props = withDefaults(defineProps<Props>(), {
   effectiveAmount: 0.0,
   asOf: '2026-11-20',
   dataSourceNote: '中证指数官网官方行情',
+  ruleSummary: '',
+  hasStaleInput: false,
+  factors: () => [],
   closePrice: 11878.27,
   pe: 9.61,
   pePercentile: 0.9077,
@@ -40,6 +44,9 @@ interface Props {
   effectiveAmount?: number
   asOf?: string
   dataSourceNote?: string
+  ruleSummary?: string
+  hasStaleInput?: boolean
+  factors?: ScoreFactor[]
   closePrice?: number
   pe?: number
   pePercentile?: number
@@ -77,36 +84,74 @@ function getScoreTag (score: number) {
   return { label: '历史高位', cls: 'bg-[#f05a50]/22 text-[#ff736a]' }
 }
 
-const dims = computed(() => [
-  {
-    name: '技术面',
-    weight: '50%',
-    score: props.techScore,
-    tag: getScoreTag(props.techScore),
-    desc: `RSI ${displayRsi.value} · 布林%B ${displayBPct.value}`
-  },
-  {
-    name: '股息利差',
-    weight: '25%',
-    score: props.spreadScore,
-    tag: getScoreTag(props.spreadScore),
-    desc: `股息 ${displayDividendYield.value} - 国债 ${displayBond10y.value} = ${displaySpreadPP.value}`
-  },
-  {
-    name: '估值分位',
-    weight: '15%',
-    score: props.valuationScore,
-    tag: getScoreTag(props.valuationScore),
-    desc: `PE ${displayPe.value} · 历史分位 ${displayPePercentile.value}%`
-  },
-  {
-    name: '市场风格',
-    weight: '10%',
-    score: props.styleScore,
-    tag: getScoreTag(props.styleScore),
-    desc: `红利/成长相对强弱 ${displayStylePercentile.value}% 分位`
-  }
-])
+function factorStatusText(status?: string): string {
+  if (status === 'computed')
+    return '日线实算'
+  if (status === 'live')
+    return '实时数据'
+  if (status === 'static_reference')
+    return '参考基线'
+  if (status === 'stale')
+    return '滞后输入'
+  if (status === 'unavailable')
+    return '暂缺'
+  return ''
+}
+
+const dims = computed(() => {
+  const byKey = new Map((props.factors || []).map(f => [f.key, f]))
+  const fTech = byKey.get('tech')
+  const fSpread = byKey.get('spread')
+  const fValue = byKey.get('value')
+  const fStyle = byKey.get('style')
+
+  return [
+    {
+      name: fTech?.name || '技术面',
+      weight: `${fTech?.weight_pct ?? 50}%`,
+      score: fTech?.score ?? props.techScore,
+      tag: getScoreTag(fTech?.score ?? props.techScore),
+      statusText: factorStatusText(fTech?.status),
+      status: fTech?.status || '',
+      asOf: fTech?.as_of || '',
+      source: fTech?.source || '',
+      desc: fTech?.note || `RSI ${displayRsi.value} · 布林%B ${displayBPct.value}`
+    },
+    {
+      name: fSpread?.name || '股息利差',
+      weight: `${fSpread?.weight_pct ?? 25}%`,
+      score: fSpread?.score ?? props.spreadScore,
+      tag: getScoreTag(fSpread?.score ?? props.spreadScore),
+      statusText: factorStatusText(fSpread?.status),
+      status: fSpread?.status || '',
+      asOf: fSpread?.as_of || '',
+      source: fSpread?.source || '',
+      desc: fSpread?.note || `股息 ${displayDividendYield.value} - 国债 ${displayBond10y.value} = ${displaySpreadPP.value}`
+    },
+    {
+      name: fValue?.name || '估值分位',
+      weight: `${fValue?.weight_pct ?? 15}%`,
+      score: fValue?.score ?? props.valuationScore,
+      tag: getScoreTag(fValue?.score ?? props.valuationScore),
+      statusText: factorStatusText(fValue?.status),
+      status: fValue?.status || '',
+      asOf: fValue?.as_of || '',
+      source: fValue?.source || '',
+      desc: fValue?.note || `PE ${displayPe.value} · 历史分位 ${displayPePercentile.value}%`
+    },
+    {
+      name: fStyle?.name || '市场风格',
+      weight: `${fStyle?.weight_pct ?? 10}%`,
+      score: fStyle?.score ?? props.styleScore,
+      tag: getScoreTag(fStyle?.score ?? props.styleScore),
+      statusText: factorStatusText(fStyle?.status),
+      status: fStyle?.status || '',
+      asOf: fStyle?.as_of || '',
+      source: fStyle?.source || '',
+      desc: fStyle?.note || `红利/成长相对强弱 ${displayStylePercentile.value}% 分位`
+    }
+  ]
+})
 </script>
 
 <template>
@@ -141,6 +186,12 @@ const dims = computed(() => [
           </text>
           <text class="text-[#9aa5b1] whitespace-nowrap font-medium">{{ multiplierText }}</text>
         </view>
+      </view>
+      <view
+        v-if="hasStaleInput"
+        class="rounded-xl bg-[#e5b352]/12 border border-[#e5b352]/35 px-3 py-1.5 text-[11px] text-[#e5b352]"
+      >
+        部分因子含参考基线或历史滞后数据，综合评分仅供辅助研判。
       </view>
     </view>
 
@@ -210,6 +261,17 @@ const dims = computed(() => [
           <view class="flex items-center space-x-1.5 min-w-0">
             <text class="text-xs font-semibold text-[#f1efea]">{{ item.name }}</text>
             <text class="text-[10px] font-mono text-[#64707c]">{{ item.weight }}</text>
+            <text
+              v-if="item.statusText"
+              class="text-[9px] px-1.5 py-0.5 rounded font-mono"
+              :class="item.status === 'static_reference' || item.status === 'stale'
+                ? 'bg-[#e5b352]/16 text-[#e5b352]'
+                : item.status === 'unavailable'
+                  ? 'bg-[#f05a50]/16 text-[#ff736a]'
+                  : 'bg-[#2ad1a3]/14 text-[#2ad1a3]'"
+            >
+              {{ item.statusText }}
+            </text>
           </view>
           <view class="flex items-center space-x-2 shrink-0">
             <text
@@ -234,6 +296,9 @@ const dims = computed(() => [
           />
         </view>
         <text class="text-[10px] text-[#8d99a4] font-mono mt-1 block">{{ item.desc }}</text>
+        <text v-if="item.source || item.asOf" class="text-[9px] text-[#64707c] font-mono mt-0.5 block">
+          {{ item.source ? `${item.source}` : '' }}{{ item.asOf ? ` · 截至 ${item.asOf}` : '' }}
+        </text>
       </view>
     </view>
 
@@ -284,8 +349,8 @@ const dims = computed(() => [
           <view class="space-y-1 bg-[#2ad1a3]/10 p-2.5 rounded-xl border border-[#2ad1a3]/20">
             <text class="text-[11px] font-bold text-[#2ad1a3] block">📐 数值怎么算的：</text>
             <text class="text-xs text-[#f1efea] leading-relaxed block font-mono cc-tabular">
-              4门科目加权后除以5：(技术面×50% + 股息利差×25% + 估值×15% + 风格×10%) ÷ 5。
-              技术面 22.98分 + 股息利差 70.24分 + 估值 9.23分 + 风格 24.27分，加权折算得出 {{ totalScore.toFixed(2) }} 分。
+              {{ ruleSummary || '4门科目加权后除以5：(技术面×50% + 股息利差×25% + 估值×15% + 风格×10%) ÷ 5。' }}
+              技术面 {{ techScore.toFixed(2) }}分 + 股息利差 {{ spreadScore.toFixed(2) }}分 + 估值 {{ valuationScore.toFixed(2) }}分 + 风格 {{ styleScore.toFixed(2) }}分，加权折算得出 {{ totalScore.toFixed(2) }} 分。
             </text>
           </view>
 

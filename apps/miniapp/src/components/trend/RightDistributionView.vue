@@ -1,10 +1,12 @@
 <script lang="ts" setup>
 import type { DistributionNode, TrendDistributionResponse } from '@/api/types/trend'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getTrendDistribution } from '@/api/trend'
 import TrendTempBadge from '@/components/finance/TrendTempBadge.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace, unwrapApiResponse } from '@/utils/asyncRace'
 import { computeSquarifiedTreemap } from '@/utils/chartGeometry'
+import { buildFinanceUrl } from '@/utils/financeRoute'
 import { getTrendTempMeta } from '@/utils/trendDict'
 
 interface Props {
@@ -48,9 +50,16 @@ const COLOR_OPTIONS: Array<{ key: 'side' | 'temperature' | 'change', label: stri
 const TREEMAP_W = 340
 const TREEMAP_H = 240
 
+const race = createAsyncRace()
+
+onUnmounted(() => {
+  race.invalidate()
+})
+
 async function fetchData () {
   if (!props.assetId)
     return
+  const token = race.next()
   loading.value = true
   errorMsg.value = ''
   try {
@@ -59,18 +68,23 @@ async function fetchData () {
       color_by: colorBy.value,
       snapshot_id: props.snapshotId
     })
-    const payload = res.data ?? null
+    if (!race.isLatest(token))
+      return
+    const payload = unwrapApiResponse(res, '右侧分布图加载失败')
     data.value = payload
     if (payload && payload.nodes.length > 0 && !payload.nodes.some(n => n.asset_id === selectedAssetId.value)) {
       selectedAssetId.value = payload.nodes[0]?.asset_id ?? ''
     }
   }
   catch (err: any) {
+    if (!race.isLatest(token))
+      return
     errorMsg.value = err?.message || '右侧分布图加载失败'
     data.value = null
   }
   finally {
-    loading.value = false
+    if (race.isLatest(token))
+      loading.value = false
   }
 }
 
@@ -212,7 +226,14 @@ function formatSideLabel (side: DistributionNode['side']): string {
 
 function navigateToAsset (assetId: string) {
   uni.navigateTo({
-    url: `/pages-sub/finance/asset?id=${encodeURIComponent(assetId)}`
+    url: buildFinanceUrl('/pages-sub/finance/asset', {
+      asset_id: assetId,
+      scope_id: props.scopeId || props.assetId,
+      currency: (props.currency as any) || undefined,
+      range: (props.range as any) || undefined,
+      snapshot_mode: props.snapshotId ? 'fixed' : 'latest',
+      snapshot_id: props.snapshotId || ''
+    })
   })
 }
 

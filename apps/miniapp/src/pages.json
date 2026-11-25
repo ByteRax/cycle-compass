@@ -3,7 +3,7 @@
     "navigationStyle": "default",
     "navigationBarBackgroundColor": "@navBgColor",
     "navigationBarTextStyle": "@navTxtStyle",
-    "navigationBarTitleText": "cycle-compass-miniapp",
+    "navigationBarTitleText": "周期罗盘",
     "backgroundColor": "@bgColor",
     "backgroundTextStyle": "@bgTxtStyle",
     "backgroundColorTop": "@bgColorTop",
@@ -171,7 +171,19 @@
             "navigationStyle": "custom"
           },
           "name": "FINANCE_SETTINGS"
+        },
+        // #ifdef MP-WEIXIN
+        {
+          "path": "finance/sector-detail",
+          "type": "page",
+          "style": {
+            "navigationBarTitleText": "产业与分类专题",
+            "navigationStyle": "custom",
+            "backgroundColor": "#090C0F"
+          },
+          "name": "FINANCE_SECTOR_DETAIL"
         }
+        // #endif
       ]
     }
   ]

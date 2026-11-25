@@ -1,10 +1,12 @@
 <script lang="ts" setup>
-import type { TrendCurveResponse } from '@/api/types/trend'
+import type { RangeAvailabilityItem, TrendCurveResponse } from '@/api/types/trend'
 import type { TrendLineSeries, TrendStateInterval } from '@/components/trend/TrendLineCanvas.vue'
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { getTrendCurve } from '@/api/trend'
 import TrendLineCanvas from '@/components/trend/TrendLineCanvas.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace, unwrapApiResponse } from '@/utils/asyncRace'
+import { toApiCurrency } from '@/utils/financeRoute'
 
 const props = withDefaults(defineProps<{
   assetId: string
@@ -13,13 +15,25 @@ const props = withDefaults(defineProps<{
   currency?: string
   scopeId?: string
   benchmarkId?: string
+  startDate?: string
+  endDate?: string
+  rangeAvailability?: RangeAvailabilityItem[]
+  earliestDate?: string | null
 }>(), {
   snapshotId: '',
   range: '1Y',
   currency: 'CNY',
   scopeId: '',
-  benchmarkId: ''
+  benchmarkId: '',
+  startDate: '',
+  endDate: '',
+  rangeAvailability: () => [],
+  earliestDate: null
 })
+
+const emit = defineEmits<{
+  rangeChange: [range: string]
+}>()
 
 const financeStore = useFinanceStore()
 const isDark = computed(() => financeStore.isDarkEffective)
@@ -39,6 +53,37 @@ const scaleMode = ref<'linear' | 'log'>('linear')
 const loading = ref(false)
 const errorMsg = ref('')
 const curveData = ref<TrendCurveResponse | null>(null)
+const customStart = ref<string>(props.startDate || '')
+const customEnd = ref<string>(props.endDate || '')
+const race = createAsyncRace()
+
+onUnmounted(() => {
+  race.invalidate()
+})
+
+function isRangeDisabled(r: string): boolean {
+  if (!props.rangeAvailability?.length)
+    return false
+  const found = props.rangeAvailability.find(item => item.range === r)
+  return found
+? !found.available
+: false
+}
+
+function selectRange(r: string) {
+  if (isRangeDisabled(r)) {
+    const found = props.rangeAvailability?.find(item => item.range === r)
+    uni.showToast({
+      title: found?.reason || `历史不足 ${r}`,
+      icon: 'none'
+    })
+    return
+  }
+  customStart.value = ''
+  customEnd.value = ''
+  activeRange.value = r
+  emit('rangeChange', r)
+}
 
 function formatPct(val: number | null | undefined): string {
   if (val === null || val === undefined || !Number.isFinite(val))
@@ -89,25 +134,43 @@ function getGainColor(val: number | null | undefined): string {
 async function fetchCurveData() {
   if (!props.assetId)
     return
+  const token = race.next()
   loading.value = true
   errorMsg.value = ''
   try {
     const res = await getTrendCurve(props.assetId, {
       range: activeRange.value,
       freq: activeFreq.value,
-      currency: props.currency || undefined,
+      currency: props.currency
+? toApiCurrency(props.currency)
+: undefined,
       benchmark_id: props.benchmarkId || undefined,
-      snapshot_id: props.snapshotId || undefined
+      snapshot_id: props.snapshotId || undefined,
+      start_date: customStart.value || undefined,
+      end_date: customEnd.value || undefined
     })
-    curveData.value = res.data ?? null
+    if (!race.isLatest(token))
+      return
+    curveData.value = unwrapApiResponse(res, '趋势曲线加载失败')
   }
   catch (err: any) {
+    if (!race.isLatest(token))
+      return
     errorMsg.value = err?.message || '趋势曲线加载失败，请稍后重试'
   }
   finally {
-    loading.value = false
+    if (race.isLatest(token))
+      loading.value = false
   }
 }
+
+watch(
+  () => [props.startDate, props.endDate],
+  ([sd, ed]) => {
+    customStart.value = sd || ''
+    customEnd.value = ed || ''
+  }
+)
 
 watch(
   () => props.range,
@@ -119,13 +182,15 @@ watch(
 
 watch(
   () => [
-props.assetId,
-props.snapshotId,
-props.currency,
-props.benchmarkId,
-activeRange.value,
-activeFreq.value
-],
+    props.assetId,
+    props.snapshotId,
+    props.currency,
+    props.benchmarkId,
+    activeRange.value,
+    activeFreq.value,
+    customStart.value,
+    customEnd.value
+  ],
   () => {
     fetchCurveData()
   },
@@ -237,6 +302,8 @@ const statusLabel = computed(() => {
           <text>·</text>
           <text>最新 {{ formatPrice(latestPoint?.value) }}</text>
           <text v-if="curveData?.benchmark_name">· 基准 {{ curveData.benchmark_name }}</text>
+          <text v-if="customStart && customEnd">· 窗口 {{ customStart }}~{{ customEnd }}</text>
+          <text v-else-if="earliestDate">· 起始 {{ earliestDate }}</text>
         </view>
       </view>
 
@@ -276,10 +343,12 @@ const statusLabel = computed(() => {
           v-for="r in rangeOptions"
           :key="r"
           class="px-2 py-1 rounded text-[11px] font-mono transition-colors"
-          :class="activeRange === r
-            ? (isDark ? 'bg-[#E5B352] text-[#090C0F] font-bold' : 'bg-[#8A641F] text-white font-bold')
-            : (isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]')"
-          @tap="activeRange = r"
+          :class="isRangeDisabled(r)
+            ? 'opacity-35 line-through'
+            : activeRange === r && !customStart
+              ? (isDark ? 'bg-[#E5B352] text-[#090C0F] font-bold' : 'bg-[#8A641F] text-white font-bold')
+              : (isDark ? 'text-[#8D99A4]' : 'text-[#515F6A]')"
+          @tap="selectRange(r)"
         >
           {{ r }}
         </text>

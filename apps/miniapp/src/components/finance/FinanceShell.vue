@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue'
 import { useFinanceStore } from '@/stores/finance'
+import { buildFinanceUrl } from '@/utils/financeRoute'
 
 export type FinanceNavTab = 'overview' | 'workbench' | 'favorites' | 'settings'
 
@@ -8,11 +9,21 @@ const props = withDefaults(defineProps<{
   title: string
   activeTab?: FinanceNavTab
   assetId?: string
+  scopeId?: string
+  currency?: string
+  range?: string
+  snapshotMode?: 'latest' | 'fixed'
+  snapshotId?: string
   showBack?: boolean
   showBottomNav?: boolean
 }>(), {
   activeTab: 'overview',
   assetId: '',
+  scopeId: '',
+  currency: '',
+  range: '',
+  snapshotMode: 'latest',
+  snapshotId: '',
   showBack: true,
   showBottomNav: true
 })
@@ -78,9 +89,14 @@ interface NavItem {
 const navItems = computed<NavItem[]>(() => {
   const strokeOff = isDark.value ? '%238D99A4' : '%23626F77'
   const strokeOn = isDark.value ? '%23E5B352' : '%238A641F'
-  const wbUrl = props.assetId
-    ? `/pages-sub/finance/workbench?id=${encodeURIComponent(props.assetId)}`
-    : '/pages-sub/finance/workbench'
+  const wbUrl = buildFinanceUrl('/pages-sub/divergence/index', {
+    asset_id: props.assetId || financeStore.defaultHomePool || 'universe_macro',
+    scope_id: props.scopeId || props.assetId || financeStore.defaultHomePool || 'universe_macro',
+    currency: (props.currency as any) || financeStore.defaultCurrency || 'CNY',
+    range: (props.range as any) || financeStore.defaultRange || '1Y',
+    snapshot_mode: props.snapshotMode,
+    snapshot_id: props.snapshotId
+  })
 
   return [
     {
@@ -183,20 +199,20 @@ function switchNav (item: NavItem) {
       :class="isDark ? 'bg-[#090C0F]/95 border-[#29313A]' : 'bg-[#FFFFFF]/95 border-[#DCDDD8]'"
       :style="{ paddingBottom: `${safeBottomPx}px` }"
     >
-      <view class="grid grid-cols-4 h-[56px]">
+      <view class="grid grid-cols-4 min-h-[56px] py-1">
         <view
           v-for="item in navItems"
           :key="item.key"
-          class="flex flex-col items-center justify-center min-h-[44px] active:opacity-75"
+          class="flex flex-col items-center justify-center min-h-[44px] px-1 active:opacity-75"
           @tap="switchNav(item)"
         >
           <image
             :src="activeTab === item.key ? item.iconOn : item.iconOff"
-            class="w-[20px] h-[20px]"
+            class="w-[20px] h-[20px] shrink-0"
             mode="aspectFit"
           />
           <text
-            class="text-[11px] mt-0.5 leading-none"
+            class="text-[11px] mt-0.5 leading-tight text-center whitespace-nowrap"
             :class="activeTab === item.key
               ? (isDark ? 'text-[#E5B352] font-bold' : 'text-[#8A641F] font-bold')
               : (isDark ? 'text-[#8D99A4]' : 'text-[#626F77]')"

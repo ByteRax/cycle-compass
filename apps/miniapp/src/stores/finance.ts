@@ -14,6 +14,7 @@ export interface FavoriteChartItem {
   context: Partial<ChartContext>
   snapshot_mode: 'latest' | 'fixed'
   snapshot_id?: string
+  note?: string
   created_at: string
 }
 
@@ -72,6 +73,9 @@ export const useFinanceStore = defineStore('finance', {
       const idx = this.favoriteAssetIds.indexOf(assetId)
       if (idx >= 0) {
         this.favoriteAssetIds.splice(idx, 1)
+        for (const groupName of Object.keys(this.favoriteAssetGroups)) {
+          this.favoriteAssetGroups[groupName] = (this.favoriteAssetGroups[groupName] || []).filter(id => id !== assetId)
+        }
         return false
       }
       this.favoriteAssetIds.unshift(assetId)
@@ -81,6 +85,53 @@ export const useFinanceStore = defineStore('finance', {
     removeFavoriteAssets(assetIds: string[]) {
       const removeSet = new Set(assetIds)
       this.favoriteAssetIds = this.favoriteAssetIds.filter(id => !removeSet.has(id))
+      for (const groupName of Object.keys(this.favoriteAssetGroups)) {
+        this.favoriteAssetGroups[groupName] = (this.favoriteAssetGroups[groupName] || []).filter(id => !removeSet.has(id))
+      }
+    },
+
+    createFavoriteGroup(groupName: string): boolean {
+      const clean = groupName.trim()
+      if (!clean)
+        return false
+      if (!this.favoriteAssetGroups[clean])
+        this.favoriteAssetGroups[clean] = []
+      return true
+    },
+
+    assignAssetToGroup(assetId: string, groupName: string) {
+      const clean = groupName.trim()
+      if (!clean || !assetId)
+        return
+      if (!this.favoriteAssetIds.includes(assetId))
+        this.favoriteAssetIds.unshift(assetId)
+      const list = this.favoriteAssetGroups[clean] || []
+      if (!list.includes(assetId))
+        this.favoriteAssetGroups[clean] = [...list, assetId]
+    },
+
+    batchAssignAssetsToGroup(assetIds: string[], groupName: string) {
+      const clean = groupName.trim()
+      if (!clean || !assetIds.length)
+        return
+      for (const id of assetIds) {
+        this.assignAssetToGroup(id, clean)
+      }
+    },
+
+    removeAssetFromGroup(assetId: string, groupName: string) {
+      const list = this.favoriteAssetGroups[groupName]
+      if (!list)
+        return
+      this.favoriteAssetGroups[groupName] = list.filter(id => id !== assetId)
+    },
+
+    deleteFavoriteGroup(groupName: string) {
+      if (this.favoriteAssetGroups[groupName]) {
+        const next = { ...this.favoriteAssetGroups }
+        delete next[groupName]
+        this.favoriteAssetGroups = next
+      }
     },
 
     saveFavoriteChart(item: Omit<FavoriteChartItem, 'id' | 'created_at'>): FavoriteChartItem {

@@ -1,10 +1,45 @@
 <script lang="ts" setup>
-import type { AssetDetailResponse, ChartType, TrendCurveResponse } from '@/api/types/trend'
+import type {
+  AnnualTrendResponse,
+  AssetDetailResponse,
+  ChartType,
+  ComponentTrendResponse,
+  PeriodMatrixResponse,
+  TrendCurveResponse,
+  TrendDashboardResponse,
+  TrendDistributionResponse,
+  TrendSeasonResponse,
+  TrendTierResponse
+} from '@/api/types/trend'
+import type {ReportDataBundle} from '@/utils/reportRegistry';
 import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
-import { computed, getCurrentInstance, ref } from 'vue'
-import { getAssetDetail, getTrendCurve } from '@/api/trend'
+import { computed, getCurrentInstance, onUnmounted, ref } from 'vue'
+import {
+  getAssetDetail,
+  getPeriodMatrix,
+  getTrendAnnual,
+  getTrendComponents,
+  getTrendCurve,
+  getTrendDashboard,
+  getTrendDistribution,
+  getTrendSeason,
+  getTrendTier
+} from '@/api/trend'
 import CSafeArea from '@/components/ui/CSafeArea.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace, isExpiredSnapshotError, unwrapApiResponse } from '@/utils/asyncRace'
+import { buildFinanceSharePath, decodeFinanceQuery, toApiCurrency, toDisplayCurrency } from '@/utils/financeRoute'
+import {
+  buildReportPages,
+  buildReportTitle,
+  canExportReportBundle,
+  drawReportPageToCanvas,
+  getReportExporterMeta,
+  
+  resolveReportAsOf,
+  resolveReportAssetName,
+  resolveReportSnapshotId
+} from '@/utils/reportRegistry'
 import { getTrendTempMeta } from '@/utils/trendDict'
 
 definePage({
@@ -20,32 +55,79 @@ definePage({
 const financeStore = useFinanceStore()
 const instance = getCurrentInstance()
 
-const assetId = ref('a_shares')
+const assetId = ref('universe_macro')
+const scopeId = ref('universe_macro')
 const chartType = ref<ChartType>('curve')
 const rangeParam = ref('1Y')
 const currencyParam = ref('CNY')
+const benchmarkIdParam = ref('')
+const snapshotMode = ref<'latest' | 'fixed'>('latest')
 const snapshotIdParam = ref('')
+const startDateParam = ref('')
+const endDateParam = ref('')
+const sortParam = ref('')
+const orderParam = ref<'asc' | 'desc' | ''>('')
+const marketParam = ref('')
+const assetTypeParam = ref('')
+const statusParam = ref('')
 const reportTheme = ref<'light' | 'dark'>(financeStore.reportThemePref)
 
 const loading = ref(false)
 const exporting = ref(false)
+const errorMsg = ref('')
+const isExpiredSnapshot = ref(false)
 const assetDetail = ref<AssetDetailResponse | null>(null)
 const curveData = ref<TrendCurveResponse | null>(null)
-const exportedTempPath = ref('')
+const matrixData = ref<PeriodMatrixResponse | null>(null)
+const tierData = ref<TrendTierResponse | null>(null)
+const seasonData = ref<TrendSeasonResponse | null>(null)
+const annualData = ref<AnnualTrendResponse | null>(null)
+const componentsData = ref<ComponentTrendResponse | null>(null)
+const dashboardData = ref<TrendDashboardResponse | null>(null)
+const distributionData = ref<TrendDistributionResponse | null>(null)
+const exportedPages = ref<string[]>([])
+const activePreviewPage = ref(1)
+const reportRace = createAsyncRace()
 
-const chartLabelMap: Record<ChartType, string> = {
-  curve: '趋势曲线',
-  annual: '年度价格走势',
-  components: '品种成分趋势',
-  dashboard: '趋势仪表盘',
-  season: '趋势节气图',
-  distribution: '右侧分布图',
-  tier: '趋势梯队榜'
-}
+onUnmounted(() => {
+  reportRace.invalidate()
+})
 
-const displayAssetName = computed(() => assetDetail.value?.asset?.name || curveData.value?.asset_name || '金融研究报告')
-const displayAsOf = computed(() => assetDetail.value?.snapshot?.as_of || curveData.value?.snapshot?.as_of || '—')
-const displayAlgo = computed(() => assetDetail.value?.snapshot?.algorithm_version || 'v1')
+const exporterMeta = computed(() => getReportExporterMeta(chartType.value))
+
+const reportBundle = computed<ReportDataBundle>(() => ({
+  chart: chartType.value,
+  assetId: assetId.value,
+  scopeId: scopeId.value,
+  currency: toApiCurrency(currencyParam.value),
+  range: rangeParam.value,
+  detail: assetDetail.value,
+  curve: curveData.value,
+  matrix: matrixData.value,
+  tier: tierData.value,
+  season: seasonData.value,
+  annual: annualData.value,
+  components: componentsData.value,
+  dashboard: dashboardData.value,
+  distribution: distributionData.value
+}))
+
+const reportPages = computed(() => buildReportPages(reportBundle.value))
+const exportCheck = computed(() => {
+  if (loading.value)
+    return { ok: false, reason: '数据加载中，请稍候' }
+  if (isExpiredSnapshot.value)
+    return { ok: false, reason: '快照已过期，请切回最新快照后重试' }
+  if (errorMsg.value)
+    return { ok: false, reason: errorMsg.value }
+  return canExportReportBundle(reportBundle.value)
+})
+
+const displayAssetName = computed(() => resolveReportAssetName(reportBundle.value))
+const displayReportTitle = computed(() => buildReportTitle(reportBundle.value))
+const displayAsOf = computed(() => resolveReportAsOf(reportBundle.value))
+const displayAlgo = computed(() => assetDetail.value?.snapshot?.algorithm_version || matrixData.value?.snapshot?.algorithm_version || 'trend-v1.0.0')
+const resolvedSnapId = computed(() => resolveReportSnapshotId(reportBundle.value) || snapshotIdParam.value)
 const displayLatestValue = computed(() => {
   const v = assetDetail.value?.asset?.latest_value
   return v !== null && v !== undefined
@@ -76,60 +158,192 @@ const displayBenchmarkReturnPct = computed(() => {
 async function loadReportData() {
   if (!assetId.value)
     return
+  const token = reportRace.next()
   loading.value = true
+  errorMsg.value = ''
+  isExpiredSnapshot.value = false
+  exportedPages.value = []
+  assetDetail.value = null
+  curveData.value = null
+  matrixData.value = null
+  tierData.value = null
+  seasonData.value = null
+  annualData.value = null
+  componentsData.value = null
+  dashboardData.value = null
+  distributionData.value = null
+
+  const apiCurrency = toApiCurrency(currencyParam.value)
+  const reqSnap = snapshotMode.value === 'fixed'
+? snapshotIdParam.value
+: ''
+
   try {
-    const [detailRes, curveRes] = await Promise.allSettled([
-      getAssetDetail(assetId.value, {
-        currency: currencyParam.value,
-        snapshot_id: snapshotIdParam.value || undefined
-      }),
-      getTrendCurve(assetId.value, {
-        range: rangeParam.value,
-        currency: currencyParam.value,
-        snapshot_id: snapshotIdParam.value || undefined
+    if (chartType.value === 'matrix') {
+      const mRes = await getPeriodMatrix(scopeId.value || assetId.value, {
+        currency: apiCurrency,
+        snapshot_id: reqSnap || undefined,
+        sort: sortParam.value || undefined,
+        order: orderParam.value || undefined,
+        market: marketParam.value || undefined,
+        asset_type: assetTypeParam.value || undefined,
+        status: statusParam.value || undefined,
+        limit: 100
       })
-    ])
-    if (detailRes.status === 'fulfilled')
-      assetDetail.value = detailRes.value.data ?? null
-    if (curveRes.status === 'fulfilled')
-      curveData.value = curveRes.value.data ?? null
+      if (!reportRace.isLatest(token))
+        return
+      matrixData.value = unwrapApiResponse(mRes, '周期矩阵数据加载失败')
+      activePreviewPage.value = 1
+      return
+    }
+
+    const detailRes = await getAssetDetail(assetId.value, {
+      scope_id: scopeId.value || undefined,
+      currency: apiCurrency,
+      snapshot_id: reqSnap || undefined
+    })
+    if (!reportRace.isLatest(token))
+      return
+    const detail = unwrapApiResponse(detailRes, '资产详情加载失败')
+    assetDetail.value = detail
+    const boundSnap = reqSnap || detail.snapshot?.snapshot_id || ''
+
+    if (chartType.value === 'curve') {
+      const cRes = await getTrendCurve(assetId.value, {
+        range: rangeParam.value,
+        currency: apiCurrency,
+        benchmark_id: benchmarkIdParam.value || detail.benchmark_id || undefined,
+        snapshot_id: boundSnap || undefined,
+        start_date: startDateParam.value || undefined,
+        end_date: endDateParam.value || undefined
+      })
+      if (!reportRace.isLatest(token))
+        return
+      curveData.value = unwrapApiResponse(cRes, '趋势曲线加载失败')
+    }
+    else if (chartType.value === 'tier') {
+      const tRes = await getTrendTier(scopeId.value || assetId.value, {
+        scope_id: scopeId.value || undefined,
+        snapshot_id: boundSnap || undefined
+      })
+      if (!reportRace.isLatest(token))
+        return
+      tierData.value = unwrapApiResponse(tRes, '梯队榜加载失败')
+    }
+    else if (chartType.value === 'season') {
+      const sRes = await getTrendSeason(scopeId.value || assetId.value, {
+        snapshot_id: boundSnap || undefined
+      })
+      if (!reportRace.isLatest(token))
+        return
+      seasonData.value = unwrapApiResponse(sRes, '趋势节气图加载失败')
+    }
+    else if (chartType.value === 'annual') {
+      const aRes = await getTrendAnnual(assetId.value, {
+        currency: apiCurrency,
+        snapshot_id: boundSnap || undefined
+      })
+      if (reportRace.isLatest(token) && aRes?.code === 0)
+        annualData.value = aRes.data ?? null
+    }
+    else if (chartType.value === 'components') {
+      const cpRes = await getTrendComponents(scopeId.value || assetId.value, {
+        scope_id: scopeId.value || undefined,
+        range: rangeParam.value,
+        currency: apiCurrency,
+        snapshot_id: boundSnap || undefined
+      })
+      if (reportRace.isLatest(token) && cpRes?.code === 0)
+        componentsData.value = cpRes.data ?? null
+    }
+    else if (chartType.value === 'dashboard') {
+      const dRes = await getTrendDashboard(scopeId.value || assetId.value, {
+        scope_id: scopeId.value || undefined,
+        currency: apiCurrency,
+        snapshot_id: boundSnap || undefined
+      })
+      if (reportRace.isLatest(token) && dRes?.code === 0)
+        dashboardData.value = dRes.data ?? null
+    }
+    else if (chartType.value === 'distribution') {
+      const distRes = await getTrendDistribution(scopeId.value || assetId.value, {
+        snapshot_id: boundSnap || undefined
+      })
+      if (reportRace.isLatest(token) && distRes?.code === 0)
+        distributionData.value = distRes.data ?? null
+    }
+  }
+  catch (err: any) {
+    if (!reportRace.isLatest(token))
+      return
+    isExpiredSnapshot.value = isExpiredSnapshotError(err)
+    errorMsg.value = err?.message || '报告快照加载失败'
   }
   finally {
-    loading.value = false
+    if (reportRace.isLatest(token))
+      loading.value = false
   }
 }
 
 onLoad((query: any) => {
-  if (query?.asset_id)
-    assetId.value = decodeURIComponent(query.asset_id)
-  if (query?.chart && query.chart in chartLabelMap)
-    chartType.value = query.chart as ChartType
-  if (query?.range)
-    rangeParam.value = decodeURIComponent(query.range)
-  if (query?.currency)
-    currencyParam.value = decodeURIComponent(query.currency)
-  if (query?.snapshot_id)
-    snapshotIdParam.value = decodeURIComponent(query.snapshot_id)
-  if (query?.theme === 'light' || query?.theme === 'dark')
-    reportTheme.value = query.theme
+  const parsed = decodeFinanceQuery(query, undefined, {
+    defaultHomePool: financeStore.defaultHomePool,
+    defaultCurrency: financeStore.defaultCurrency,
+    defaultRange: financeStore.defaultRange,
+    reportThemePref: financeStore.reportThemePref
+  })
+  assetId.value = parsed.asset_id
+  scopeId.value = parsed.scope_id
+  chartType.value = parsed.chart
+  rangeParam.value = parsed.range
+  currencyParam.value = toDisplayCurrency(parsed.currency)
+  benchmarkIdParam.value = parsed.benchmark_id
+  snapshotMode.value = parsed.snapshot_mode
+  snapshotIdParam.value = parsed.snapshot_id
+  startDateParam.value = parsed.start_date || ''
+  endDateParam.value = parsed.end_date || ''
+  sortParam.value = parsed.sort || ''
+  orderParam.value = parsed.order || ''
+  marketParam.value = parsed.market || ''
+  assetTypeParam.value = parsed.asset_type || ''
+  statusParam.value = parsed.status || ''
+  if (parsed.theme)
+    reportTheme.value = parsed.theme
   loadReportData()
 })
 
 onShareAppMessage(() => {
-  const params = [
-    `asset_id=${encodeURIComponent(assetId.value)}`,
-    `chart=${encodeURIComponent(chartType.value)}`,
-    `range=${encodeURIComponent(rangeParam.value)}`,
-    `currency=${encodeURIComponent(currencyParam.value)}`,
-    `theme=${encodeURIComponent(reportTheme.value)}`
-  ]
-  if (snapshotIdParam.value)
-    params.push(`snapshot_id=${encodeURIComponent(snapshotIdParam.value)}`)
+  const fixedId = resolvedSnapId.value
+  const path = buildFinanceSharePath('/pages-sub/finance/report', {
+    asset_id: assetId.value,
+    scope_id: scopeId.value,
+    chart: chartType.value,
+    range: rangeParam.value as any,
+    currency: currencyParam.value as any,
+    benchmark_id: benchmarkIdParam.value,
+    snapshot_mode: fixedId ? 'fixed' : snapshotMode.value,
+    snapshot_id: fixedId,
+    start_date: startDateParam.value,
+    end_date: endDateParam.value,
+    sort: sortParam.value,
+    order: orderParam.value || undefined,
+    market: marketParam.value,
+    asset_type: assetTypeParam.value,
+    status: statusParam.value,
+    theme: reportTheme.value
+  }, fixedId || undefined)
+
   return {
-    title: `${displayAssetName.value} · ${chartLabelMap[chartType.value]}研究报告`,
-    path: `/pages-sub/finance/report?${params.join('&')}`
+    title: displayReportTitle.value,
+    path
   }
 })
+
+function switchToLatestAndReload() {
+  snapshotMode.value = 'latest'
+  snapshotIdParam.value = ''
+  loadReportData()
+}
 
 function handleBack() {
   uni.navigateBack({
@@ -142,193 +356,19 @@ function handleBack() {
 function setReportTheme(theme: 'light' | 'dark') {
   reportTheme.value = theme
   financeStore.reportThemePref = theme
-  exportedTempPath.value = ''
+  exportedPages.value = []
 }
 
 function formatPct(val: number | null | undefined): string {
   if (val === null || val === undefined)
     return '—'
   const sign = val > 0
-? '+'
-: ''
+    ? '+'
+    : ''
   return `${sign}${val.toFixed(1)}%`
 }
 
-function drawReportCanvas(ctx: any, width: number, height: number) {
-  const isLight = reportTheme.value === 'light'
-  const bg = isLight ? '#F4F3EF' : '#090C0F'
-  const cardBg = isLight ? '#FFFFFF' : '#12161B'
-  const border = isLight ? '#DCDDD8' : '#29313A'
-  const textPrimary = isLight ? '#22292E' : '#F1EFEA'
-  const textSecondary = isLight ? '#515F6A' : '#A9B3BD'
-  const textMuted = isLight ? '#626F77' : '#8D99A4'
-  const brand = isLight ? '#8A641F' : '#E5B352'
-  const upColor = isLight ? '#B93842' : '#F05A50'
-  const downColor = isLight ? '#14745E' : '#2AD1A3'
-
-  // 背景
-  ctx.fillStyle = bg
-  ctx.fillRect(0, 0, width, height)
-
-  // 头部品牌条
-  ctx.fillStyle = brand
-  ctx.font = 'bold 34px sans-serif'
-  ctx.fillText('周期罗盘 CycleCompass', 64, 96)
-
-  ctx.fillStyle = textMuted
-  ctx.font = '26px sans-serif'
-  ctx.fillText(`研究报告 / ${chartLabelMap[chartType.value]}`, 680, 96)
-
-  // 标题
-  ctx.fillStyle = textPrimary
-  ctx.font = 'bold 54px sans-serif'
-  ctx.fillText(`${displayAssetName.value} · ${rangeParam.value}趋势`, 64, 188)
-
-  ctx.fillStyle = textSecondary
-  ctx.font = '28px sans-serif'
-  ctx.fillText(`快照日期 ${displayAsOf.value} · 计价 ${currencyParam.value} · 算法 ${displayAlgo.value}`, 64, 240)
-
-  // 三项 KPI 卡片
-  ctx.fillStyle = cardBg
-  ctx.fillRect(64, 286, width - 128, 210)
-  ctx.strokeStyle = border
-  ctx.lineWidth = 2
-  ctx.strokeRect(64, 286, width - 128, 210)
-
-  const kpis = [
-    {
-label: '最新值',
-value: displayLatestValue.value,
-sub: currencyParam.value,
-color: brand
-},
-    {
-label: '趋势温度',
-value: displayTempMeta.value.label,
-sub: displayTempMeta.value.shortDesc,
-color: isLight ? displayTempMeta.value.lightColor : displayTempMeta.value.color
-},
-    {
-label: '相对强度',
-value: String(displayStrength.value),
-sub: '观察池百分位',
-color: brand
-}
-  ]
-  kpis.forEach((k, idx) => {
-    const x = 104 + idx * 316
-    ctx.fillStyle = textMuted
-    ctx.font = '26px sans-serif'
-    ctx.fillText(k.label, x, 344)
-    ctx.fillStyle = k.color
-    ctx.font = 'bold 56px sans-serif'
-    ctx.fillText(k.value, x, 420)
-    ctx.fillStyle = textMuted
-    ctx.font = '24px sans-serif'
-    ctx.fillText(k.sub, x, 466)
-  })
-
-  // 趋势曲线绘图区
-  const chartX = 64
-  const chartY = 540
-  const chartW = width - 128
-  const chartH = 480
-  ctx.fillStyle = cardBg
-  ctx.fillRect(chartX, chartY, chartW, chartH)
-  ctx.strokeStyle = border
-  ctx.strokeRect(chartX, chartY, chartW, chartH)
-
-  const pts = (curveData.value?.points || []).filter(p => p.return_pct !== null)
-  if (pts.length >= 2) {
-    const vals = pts.map(p => p.return_pct as number)
-    const minV = Math.min(...vals, 0)
-    const maxV = Math.max(...vals, 0)
-    const span = Math.max(maxV - minV, 1)
-
-    // 0% 基准线
-    const zeroY = chartY + chartH - 48 - ((0 - minV) / span) * (chartH - 96)
-    ctx.strokeStyle = border
-    ctx.beginPath()
-    ctx.moveTo(chartX + 36, zeroY)
-    ctx.lineTo(chartX + chartW - 36, zeroY)
-    ctx.stroke()
-
-    ctx.strokeStyle = brand
-    ctx.lineWidth = 5
-    ctx.beginPath()
-    pts.forEach((p, idx) => {
-      const px = chartX + 36 + (idx / (pts.length - 1)) * (chartW - 72)
-      const py = chartY + chartH - 48 - (((p.return_pct as number) - minV) / span) * (chartH - 96)
-      if (idx === 0)
-        ctx.moveTo(px, py)
-      else
-        ctx.lineTo(px, py)
-    })
-    ctx.stroke()
-  }
-  else {
-    ctx.fillStyle = textMuted
-    ctx.font = '28px sans-serif'
-    ctx.fillText('当前快照暂无足够曲线点位，已保留核心指标摘要', chartX + 160, chartY + chartH / 2)
-  }
-
-  // 底部四项极值指标
-  const ext = curveData.value?.extremum
-  const statsY = 1074
-  const bottomStats = [
-    {
-label: '当前累计收益',
-value: formatPct(displayReturnPct.value),
-color: (displayReturnPct.value ?? 0) >= 0
-? upColor
-: downColor
-},
-    {
-label: '比较基准',
-value: formatPct(displayBenchmarkReturnPct.value),
-color: (displayBenchmarkReturnPct.value ?? 0) >= 0
-? upColor
-: downColor
-},
-    {
-label: '最大回撤',
-value: formatPct(ext?.max_drawdown_pct),
-color: downColor
-},
-    {
-label: '最大上涨',
-value: formatPct(ext?.max_gain_pct),
-color: upColor
-}
-  ]
-  bottomStats.forEach((s, idx) => {
-    const x = 64 + idx * 244
-    ctx.fillStyle = textMuted
-    ctx.font = '24px sans-serif'
-    ctx.fillText(s.label, x, statsY)
-    ctx.fillStyle = s.color
-    ctx.font = 'bold 38px sans-serif'
-    ctx.fillText(s.value, x, statsY + 52)
-  })
-
-  // 底部免责与二维码占位
-  ctx.fillStyle = border
-  ctx.fillRect(64, 1180, width - 128, 2)
-  ctx.fillStyle = brand
-  ctx.font = 'bold 30px sans-serif'
-  ctx.fillText('周期罗盘 CycleCompass', 64, 1250)
-  ctx.fillStyle = textMuted
-  ctx.font = '22px sans-serif'
-  ctx.fillText('历史表现不代表未来收益 · 指标口径见小程序内说明', 64, 1296)
-
-  ctx.strokeStyle = border
-  ctx.strokeRect(width - 204, 1216, 140, 140)
-  ctx.fillStyle = textMuted
-  ctx.font = '22px sans-serif'
-  ctx.fillText('小程序码', width - 178, 1294)
-}
-
-function generateReportImage(): Promise<string> {
+function renderSinglePage(pageSpec: ReturnType<typeof buildReportPages>[number]): Promise<string> {
   return new Promise((resolve, reject) => {
     const query = uni.createSelectorQuery().in(instance?.proxy)
     query.select('#reportCanvas').fields({ node: true, size: true }, () => {}).exec((res) => {
@@ -342,7 +382,15 @@ function generateReportImage(): Promise<string> {
       node.width = width
       node.height = height
       const ctx = node.getContext('2d')
-      drawReportCanvas(ctx, width, height)
+      drawReportPageToCanvas(
+        ctx,
+        width,
+        height,
+        reportBundle.value,
+        pageSpec,
+        reportTheme.value,
+        financeStore.colorScheme === 'cn_red_up'
+      )
       uni.canvasToTempFilePath({
         canvasId: 'reportCanvas',
         canvas: node,
@@ -350,27 +398,44 @@ function generateReportImage(): Promise<string> {
         destHeight: height,
         fileType: 'png',
         quality: 1,
-        success: (out) => {
-          exportedTempPath.value = out.tempFilePath
-          resolve(out.tempFilePath)
-        },
+        success: out => resolve(out.tempFilePath),
         fail: err => reject(err)
       } as UniApp.CanvasToTempFilePathOptions)
     })
   })
 }
 
+async function ensureRenderedPages(): Promise<string[]> {
+  if (!exportCheck.value.ok)
+    throw new Error(exportCheck.value.reason || '当前报告数据未就绪')
+  if (exportedPages.value.length === reportPages.value.length && exportedPages.value.length > 0)
+    return exportedPages.value
+
+  const paths: string[] = []
+  for (const page of reportPages.value) {
+    const path = await renderSinglePage(page)
+    paths.push(path)
+  }
+  exportedPages.value = paths
+  return paths
+}
+
 async function handlePreviewImage() {
   if (exporting.value)
     return
+  if (!exportCheck.value.ok) {
+    uni.showToast({ title: exportCheck.value.reason, icon: 'none' })
+    return
+  }
   exporting.value = true
   uni.showLoading({ title: '生成高清图...' })
   try {
-    const filePath = exportedTempPath.value || await generateReportImage()
+    const urls = await ensureRenderedPages()
     uni.hideLoading()
     uni.previewImage({
-urls: [filePath]
-})
+      urls,
+      current: urls[Math.max(0, activePreviewPage.value - 1)] || urls[0]
+    })
   }
   catch (err: any) {
     uni.hideLoading()
@@ -381,42 +446,57 @@ urls: [filePath]
   }
 }
 
+function saveSingleImageToAlbum(filePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    uni.saveImageToPhotosAlbum({
+      filePath,
+      success: () => resolve(),
+      fail: err => reject(err)
+    })
+  })
+}
+
 async function handleSaveToAlbum() {
   if (exporting.value)
     return
+  if (!exportCheck.value.ok) {
+    uni.showToast({ title: exportCheck.value.reason, icon: 'none' })
+    return
+  }
   exporting.value = true
   uni.showLoading({ title: '正在导出 1080px 高清图...' })
   try {
-    const filePath = exportedTempPath.value || await generateReportImage()
-    uni.saveImageToPhotosAlbum({
-      filePath,
-      success: () => {
-        uni.hideLoading()
-        uni.showToast({ title: '已保存到相册', icon: 'success' })
-      },
-      fail: (err) => {
-        uni.hideLoading()
-        const msg = err?.errMsg || ''
-        if (msg.includes('auth deny') || msg.includes('authorize')) {
-          uni.showModal({
-            title: '需要相册权限',
-            content: '请在设置中允许保存图片到相册，以便导出高清研究报告。',
-            confirmText: '去设置',
-            success: (modalRes) => {
-              if (modalRes.confirm)
-                uni.openSetting({})
-            }
-          })
-        }
-        else {
-          uni.showToast({ title: '保存失败，请长按预览图保存', icon: 'none' })
-        }
-      }
+    const paths = await ensureRenderedPages()
+    for (const p of paths)
+      await saveSingleImageToAlbum(p)
+    uni.hideLoading()
+    uni.showToast({
+      title: paths.length > 1
+? `已保存全部 ${paths.length} 页到相册`
+: '已保存到相册',
+      icon: 'success'
     })
   }
   catch (err: any) {
     uni.hideLoading()
-    uni.showToast({ title: err?.message || '导出失败', icon: 'none' })
+    const msg = String(err?.errMsg || err?.message || '')
+    if (msg.includes('auth deny') || msg.includes('authorize')) {
+      uni.showModal({
+        title: '需要相册权限',
+        content: '请在设置中允许保存图片到相册，以便导出高清研究报告。',
+        confirmText: '去设置',
+        success: (modalRes) => {
+          if (modalRes.confirm)
+            uni.openSetting({})
+        }
+      })
+    }
+    else if (msg.includes('cancel')) {
+      uni.showToast({ title: '已取消保存', icon: 'none' })
+    }
+    else {
+      uni.showToast({ title: msg || '保存失败，请重试', icon: 'none' })
+    }
   }
   finally {
     exporting.value = false
@@ -458,7 +538,7 @@ async function handleSaveToAlbum() {
         </view>
       </view>
       <text class="text-xs cc-text-secondary block mb-3">
-        {{ displayAssetName }} · {{ chartLabelMap[chartType] }} / {{ displayAsOf }}
+        {{ displayAssetName }} · {{ exporterMeta.label }} / {{ displayAsOf }}
       </text>
 
       <!-- 报告预览画布卡片（独立于页面主题，跟随 reportTheme） -->
@@ -479,12 +559,12 @@ async function handleSaveToAlbum() {
             class="text-[11px]"
             :style="{ color: reportTheme === 'light' ? '#626F77' : '#8D99A4' }"
           >
-            研究报告 / {{ chartLabelMap[chartType] }}
+            研究报告 / {{ exporterMeta.label }}
           </text>
         </view>
 
         <text class="text-lg font-bold block mb-1">
-          {{ displayAssetName }} · {{ rangeParam }}趋势对比
+          {{ displayReportTitle }}
         </text>
         <text
           class="text-[11px] block mb-3"
@@ -496,6 +576,122 @@ async function handleSaveToAlbum() {
         <view v-if="loading" class="py-8 text-center text-xs opacity-70">
           正在加载报告快照...
         </view>
+
+        <view v-else-if="errorMsg || !exportCheck.ok" class="py-6 text-center space-y-2">
+          <text class="text-xs font-bold text-[#F05A50] block">
+            {{ isExpiredSnapshot ? '请求的快照已过期' : '当前快照暂不可生成报告' }}
+          </text>
+          <text class="text-[11px] opacity-80 block">
+            {{ exportCheck.reason }}
+          </text>
+          <view class="flex items-center justify-center gap-2 pt-1">
+            <text
+              v-if="isExpiredSnapshot"
+              class="px-3 py-1 rounded-lg text-xs font-bold"
+              style="background-color: var(--cc-brand-primary); color: #090C0F;"
+              @tap="switchToLatestAndReload"
+            >
+              切回最新快照
+            </text>
+            <text
+              class="px-3 py-1 rounded-lg text-xs border"
+              style="border-color: var(--cc-border);"
+              @tap="loadReportData"
+            >
+              重试
+            </text>
+          </view>
+        </view>
+
+        <!-- 周期矩阵预览 -->
+        <template v-else-if="chartType === 'matrix' && matrixData">
+          <view class="space-y-2 mb-3">
+            <view
+              v-for="(slice, sIdx) in (reportPages[activePreviewPage - 1]?.matrixSlices || [])"
+              :key="`${slice.groupName}-${sIdx}`"
+              class="rounded-xl border overflow-hidden"
+              :style="reportTheme === 'light'
+                ? 'background-color: #FFFFFF; border-color: #DCDDD8;'
+                : 'background-color: #181E25; border-color: #29313A;'"
+            >
+              <view class="px-2.5 py-1.5 text-[11px] font-bold" :style="{ color: reportTheme === 'light' ? '#8A641F' : '#E5B352' }">
+                {{ slice.groupName }}{{ slice.isContinuation ? '（续）' : '' }}
+              </view>
+              <view
+                v-for="row in slice.rows.slice(0, 6)"
+                :key="row.asset.asset_id"
+                class="px-2.5 py-1.5 flex items-center justify-between text-[11px] border-t"
+                :style="{ borderColor: reportTheme === 'light' ? '#DCDDD8' : '#29313A' }"
+              >
+                <text class="font-medium truncate max-w-[110px]">{{ row.asset.short_name || row.asset.name }}</text>
+                <view class="flex items-center gap-2 font-mono cc-tabular">
+                  <text v-for="col in (matrixData.columns || []).slice(0, 3)" :key="col.key">
+                    {{ col.label }}:{{ row.cells[col.key]?.return_pct !== null && row.cells[col.key]?.return_pct !== undefined
+                      ? `${row.cells[col.key]!.return_pct! > 0 ? '+' : ''}${row.cells[col.key]!.return_pct!.toFixed(1)}%`
+                      : (row.cells[col.key]?.bp_change !== null && row.cells[col.key]?.bp_change !== undefined
+                        ? `${row.cells[col.key]!.bp_change! > 0 ? '+' : ''}${row.cells[col.key]!.bp_change!.toFixed(1)}bp`
+                        : '—') }}
+                  </text>
+                </view>
+              </view>
+            </view>
+
+            <view v-if="reportPages.length > 1" class="flex items-center justify-center gap-3 pt-1">
+              <text
+                class="px-2.5 py-1 rounded border text-[11px]"
+                :style="{ opacity: activePreviewPage > 1 ? 1 : 0.4, borderColor: reportTheme === 'light' ? '#DCDDD8' : '#29313A' }"
+                @tap="activePreviewPage > 1 && (activePreviewPage -= 1)"
+              >
+                ‹ 上一页
+              </text>
+              <text class="text-[11px] font-mono cc-tabular">{{ activePreviewPage }} / {{ reportPages.length }}</text>
+              <text
+                class="px-2.5 py-1 rounded border text-[11px]"
+                :style="{ opacity: activePreviewPage < reportPages.length ? 1 : 0.4, borderColor: reportTheme === 'light' ? '#DCDDD8' : '#29313A' }"
+                @tap="activePreviewPage < reportPages.length && (activePreviewPage += 1)"
+              >
+                下一页 ›
+              </text>
+            </view>
+          </view>
+        </template>
+
+        <!-- 梯队 / 节气预览 -->
+        <template v-else-if="chartType === 'tier' && tierData">
+          <view class="space-y-1.5 mb-3">
+            <view
+              v-for="b in tierData.tiers"
+              :key="b.tier"
+              class="px-2.5 py-2 rounded-lg border flex items-center justify-between text-[11px]"
+              :style="reportTheme === 'light'
+                ? 'background-color: #FFFFFF; border-color: #DCDDD8;'
+                : 'background-color: #181E25; border-color: #29313A;'"
+            >
+              <text class="font-bold">{{ b.pro_label }}</text>
+              <text class="opacity-80 truncate max-w-[180px]">
+                {{ b.items.map(i => i.name).slice(0, 4).join('、') || '暂无' }}
+              </text>
+            </view>
+          </view>
+        </template>
+
+        <template v-else-if="chartType === 'season' && seasonData">
+          <view class="space-y-1.5 mb-3">
+            <view
+              v-for="s in seasonData.stages.filter(st => st.count > 0)"
+              :key="s.stage_key"
+              class="px-2.5 py-2 rounded-lg border flex items-center justify-between text-[11px]"
+              :style="reportTheme === 'light'
+                ? 'background-color: #FFFFFF; border-color: #DCDDD8;'
+                : 'background-color: #181E25; border-color: #29313A;'"
+            >
+              <text class="font-bold">{{ s.stage_label }} ({{ s.count }})</text>
+              <text class="opacity-80 truncate max-w-[180px]">
+                {{ s.members.map(m => m.name).slice(0, 4).join('、') }}
+              </text>
+            </view>
+          </view>
+        </template>
 
         <template v-else>
           <!-- 3栏 KPI -->
@@ -596,20 +792,22 @@ async function handleSaveToAlbum() {
         图片由 Canvas 2D 独立渲染，非页面截图；导出后可直接保存相册。
       </text>
 
-      <!-- 操作按钮 -->
+      <!-- 操作按钮（预览与保存共用同一渲染结果；不可导出态禁用） -->
       <view class="grid grid-cols-2 gap-2.5 mb-3">
         <view
           class="py-3 rounded-xl cc-panel text-center text-xs font-semibold cc-text-primary cursor-pointer"
+          :class="!exportCheck.ok ? 'opacity-45' : ''"
           @tap="handlePreviewImage"
         >
-          查看完整图
+          {{ exporterMeta.previewButtonLabel }}
         </view>
         <view
           class="py-3 rounded-xl text-center text-xs font-semibold cursor-pointer"
+          :class="!exportCheck.ok ? 'opacity-45' : ''"
           style="background-color: var(--cc-brand-primary); color: #090C0F;"
           @tap="handleSaveToAlbum"
         >
-          保存相册
+          {{ exporterMeta.exportButtonLabel }}
         </view>
       </view>
 

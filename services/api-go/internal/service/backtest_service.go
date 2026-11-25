@@ -452,6 +452,10 @@ func (s *BacktestService) computeBacktest(req dto.BacktestRequest) (cachedBackte
 		ZoneDistribution:   zoneCounts,
 		TotalRebuyCount:    rebuyCount,
 		LedgerEntriesCount: len(allLedgers),
+		RuleVersion:        "rotation-v1.0.0",
+		DataSource:         "local_csv(399673,930955)",
+		ExecutionTiming:    "ISO业务周首个交易日盘后判断；离开中间区于次周执行日全额回补",
+		ClipReason:         fmt.Sprintf("按两指数可用交集裁剪，实际有效 %d 交易日（%s ~ %s）", n, aligned[0].dateStr, aligned[len(aligned)-1].dateStr),
 	}
 
 	out := dto.BacktestOutput{

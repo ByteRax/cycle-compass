@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { computed } from 'vue'
+import { buildFinanceUrl } from '@/utils/financeRoute'
 
 defineOptions({
   options: {
@@ -7,52 +8,64 @@ defineOptions({
   }
 })
 
+const props = withDefaults(defineProps<Props>(), {
+  symbol: '',
+  unit: '',
+  disableAutoNav: false
+})
+
+const emit = defineEmits<{
+  (e: 'click'): void
+}>()
+
 interface Props {
   symbol?: string
   name: string
   price: number | string
   changePercent: number
   unit?: string
+  disableAutoNav?: boolean
 }
 
-const props = defineProps<Props>()
-const emit = defineEmits<{
-  (e: 'click'): void
-}>()
-
 const numericChangePercent = computed(() => {
-  const val = typeof props.changePercent === 'number' ? props.changePercent : parseFloat(props.changePercent as any)
-  return Number.isFinite(val) ? val : null
+  const val = typeof props.changePercent === 'number'
+? props.changePercent
+: parseFloat(props.changePercent as any)
+  return Number.isFinite(val)
+? val
+: null
 })
 
 const isUp = computed(() => (numericChangePercent.value ?? 0) > 0)
 const isDown = computed(() => (numericChangePercent.value ?? 0) < 0)
 
 const displayPrice = computed(() => {
-  const num = typeof props.price === 'number' ? props.price : parseFloat(props.price as string)
+  const num = typeof props.price === 'number'
+? props.price
+: parseFloat(props.price as string)
   if (Number.isFinite(num)) {
     const abs = Math.abs(num)
-    return abs > 0 && abs < 0.1 ? num.toFixed(3) : num.toFixed(2)
+    return abs > 0 && abs < 0.1
+? num.toFixed(3)
+: num.toFixed(2)
   }
   return props.price || '--'
 })
 
 const formattedPercent = computed(() => {
-  if (numericChangePercent.value === null) return '--'
-  const sign = numericChangePercent.value > 0 ? '+' : ''
+  if (numericChangePercent.value === null) 
+return '--'
+  const sign = numericChangePercent.value > 0
+? '+'
+: ''
   return `${sign}${numericChangePercent.value.toFixed(2)}%`
 })
-const handleClick = () => {
+function handleClick () {
   emit('click')
-  let targetId = 'etf_macro'
-  const n = props.name || ''
-  if (n.includes('红利')) {
-    targetId = 'dividend_etf'
-  } else if (n.includes('A股') || n.includes('行业')) {
-    targetId = 'a_shares'
-  }
+  if (props.disableAutoNav)
+    return
   uni.navigateTo({
-    url: `/pages-sub/divergence/index?id=${targetId}`
+    url: buildFinanceUrl('/pages-sub/finance/index', { scope_id: 'universe_macro' })
   })
 }
 </script>

@@ -1,24 +1,24 @@
 <script lang="ts" setup>
-import { ref, shallowRef, computed, onMounted, onUnmounted } from 'vue'
-import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
-import TabCycle from './components/TabCycle.vue'
-import TabMarkets from './components/TabMarkets.vue'
-import TabSectors from './components/TabSectors.vue'
-import TabPortfolio from './components/TabPortfolio.vue'
-import {
-  getMarketQuotes,
-  getIndustryMetrics,
-  getCycleOverview,
-  getCombinedStrategySignal,
-  runBacktest,
-  getPortfolioOverview,
-  type MarketQuote,
-  type IndustryMetric,
-  type CycleOverview,
-  type CombinedSignal,
-  type BacktestOutput,
-  type PortfolioOverview as IPortfolioOverview
+import type {
+  BacktestOutput,
+  CombinedSignal,
+  CycleOverview,
+  IndustryMetric,
+  PortfolioOverview as IPortfolioOverview,
+  MarketQuote
 } from '@/api/cycle'
+import type { BottomTabKey } from '@/utils/swipe'
+import { onHide, onLoad, onPageScroll, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import {
+  getCombinedStrategySignal,
+  getCycleOverview,
+  getIndustryMetrics,
+  getMarketQuotes,
+  getPortfolioOverview,
+  runBacktest
+} from '@/api/cycle'
+import { usePortfolio } from '@/composables/usePortfolio'
 import {
   FALLBACK_BACKTEST_DATA,
   SEED_AI_EQUIPMENTS,
@@ -46,8 +46,11 @@ import {
   SEED_STRATEGY_SIGNAL,
   SEED_TW_MACRO
 } from '@/data/seeds'
-import { BOTTOM_TAB_KEYS, evaluateTabSwipe, type BottomTabKey } from '@/utils/swipe'
-import { usePortfolio } from '@/composables/usePortfolio'
+import { BOTTOM_TAB_KEYS, evaluateTabSwipe, resolveBottomTabKey } from '@/utils/swipe'
+import TabMarketHub from './components/TabMarketHub.vue'
+import TabOverview from './components/TabOverview.vue'
+import TabPortfolio from './components/TabPortfolio.vue'
+import TabResearch from './components/TabResearch.vue'
 
 definePage({
   type: 'home',
@@ -63,23 +66,28 @@ definePage({
   }
 })
 
-// 底部 4 Tab 导航（融合方向一「策略 / 行情 / 产业 / 账本」与方向四同心环视觉图标，兼容小程序 WXML）
-const tabs = [
+// 底部 4 Tab 导航（总览 / 市场 / 研究 / 账本）
+const tabs: ReadonlyArray<{
+  key: BottomTabKey
+  label: string
+  iconOff: string
+  iconOn: string
+}> = [
   {
-    key: 'cycle',
-    label: '策略',
+    key: 'overview',
+    label: '总览',
     iconOff: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM2RTdCODYiIHN0cm9rZS13aWR0aD0iMS45IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjkiLz48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSI0LjUiLz48cGF0aCBkPSJNMTIgNy41VjEybDIuNSAyIi8+PC9zdmc+',
     iconOn: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNFNUIzNTIiIHN0cm9rZS13aWR0aD0iMS45IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjkiLz48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSI0LjUiLz48cGF0aCBkPSJNMTIgNy41VjEybDIuNSAyIi8+PC9zdmc+'
   },
   {
     key: 'markets',
-    label: '行情',
+    label: '市场',
     iconOff: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM2RTdCODYiIHN0cm9rZS13aWR0aD0iMS45IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0zIDE2bDUtNSA0IDQgOS05Ii8+PHBhdGggZD0iTTE2IDZoNXY1Ii8+PC9zdmc+',
     iconOn: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNFNUIzNTIiIHN0cm9rZS13aWR0aD0iMS45IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0zIDE2bDUtNSA0IDQgOS05Ii8+PHBhdGggZD0iTTE2IDZoNXY1Ii8+PC9zdmc+'
   },
   {
-    key: 'sectors',
-    label: '产业',
+    key: 'research',
+    label: '研究',
     iconOff: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM2RTdCODYiIHN0cm9rZS13aWR0aD0iMS45IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxyZWN0IHg9IjMuNSIgeT0iMy41IiB3aWR0aD0iNyIgaGVpZ2h0PSI3IiByeD0iMS41Ii8+PHJlY3QgeD0iMTMuNSIgeT0iMy41IiB3aWR0aD0iNyIgaGVpZ2h0PSI3IiByeD0iMS41Ii8+PHJlY3QgeD0iMy41IiB5PSIxMy41IiB3aWR0aD0iNyIgaGVpZ2h0PSI3IiByeD0iMS41Ii8+PHJlY3QgeD0iMTMuNSIgeT0iMTMuNSIgd2lkdGg9IjciIGhlaWdodD0iNyIgcng9IjEuNSIvPjwvc3ZnPg==',
     iconOn: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNFNUIzNTIiIHN0cm9rZS13aWR0aD0iMS45IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxyZWN0IHg9IjMuNSIgeT0iMy41IiB3aWR0aD0iNyIgaGVpZ2h0PSI3IiByeD0iMS41Ii8+PHJlY3QgeD0iMTMuNSIgeT0iMy41IiB3aWR0aD0iNyIgaGVpZ2h0PSI3IiByeD0iMS41Ii8+PHJlY3QgeD0iMy41IiB5PSIxMy41IiB3aWR0aD0iNyIgaGVpZ2h0PSI3IiByeD0iMS41Ii8+PHJlY3QgeD0iMTMuNSIgeT0iMTMuNSIgd2lkdGg9IjciIGhlaWdodD0iNyIgcng9IjEuNSIvPjwvc3ZnPg=='
   },
@@ -89,27 +97,34 @@ const tabs = [
     iconOff: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM2RTdCODYiIHN0cm9rZS13aWR0aD0iMS45IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxyZWN0IHg9IjQiIHk9IjMiIHdpZHRoPSIxNiIgaGVpZ2h0PSIxOCIgcng9IjIuNSIvPjxsaW5lIHgxPSI4IiB5MT0iOSIgeDI9IjE2IiB5Mj0iOSIvPjxsaW5lIHgxPSI4IiB5MT0iMTMuNSIgeDI9IjE0IiB5Mj0iMTMuNSIvPjxsaW5lIHgxPSI4IiB5MT0iMTcuNSIgeDI9IjExLjUiIHkyPSIxNy41Ii8+PC9zdmc+',
     iconOn: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNFNUIzNTIiIHN0cm9rZS13aWR0aD0iMS45IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxyZWN0IHg9IjQiIHk9IjMiIHdpZHRoPSIxNiIgaGVpZ2h0PSIxOCIgcng9IjIuNSIvPjxsaW5lIHgxPSI4IiB5MT0iOSIgeDI9IjE2IiB5Mj0iOSIvPjxsaW5lIHgxPSI4IiB5MT0iMTMuNSIgeDI9IjE0IiB5Mj0iMTMuNSIvPjxsaW5lIHgxPSI4IiB5MT0iMTcuNSIgeDI9IjExLjUiIHkyPSIxNy41Ii8+PC9zdmc+'
   }
-] as const
-const activeTab = ref('cycle')
-// 记录已经挂载激活过的 Tab（懒渲染 + v-show 保留 DOM，杜绝切换时反复重绘）
-interface TabState {
-  cycle: boolean
-  markets: boolean
-  sectors: boolean
-  portfolio: boolean
-  [key: string]: boolean
-}
+]
 
-const loadedTabs = ref<TabState>({
-  cycle: true,
+const activeTab = ref<BottomTabKey>('overview')
+const marketSegment = ref<'quotes' | 'industries'>('quotes')
+const overviewRef = ref<InstanceType<typeof TabOverview> | null>(null)
+
+const loadedTabs = ref<Record<BottomTabKey, boolean>>({
+  overview: true,
   markets: false,
-  sectors: false,
+  research: false,
   portfolio: false
 })
 
+// 按 Tab 独立保存滚动位置，避免切换时强行重置顶部（AUDIT 20）
+const tabScrollTops = ref<Record<BottomTabKey, number>>({
+  overview: 0,
+  markets: 0,
+  research: 0,
+  portfolio: 0
+})
+let currentScrollTop = 0
 
+onPageScroll((e) => {
+  currentScrollTop = e?.scrollTop ?? 0
+  tabScrollTops.value[activeTab.value] = currentScrollTop
+})
 
-// ==================== 各板块响应式状态（离线种子已抽离至 @/data/seeds，保留 shallowRef 浅响应式） ====================
+// 各板块响应式状态（离线种子仅作初始结构占位，独立标记 UsingSeed 与 Error）
 const globalEconomicData = shallowRef<MarketQuote[]>([...SEED_GLOBAL_ECONOMIC_DATA])
 const sectorList = shallowRef<IndustryMetric[]>([...SEED_SECTOR_LIST])
 const hkUsMacroList = shallowRef([...SEED_HK_US_MACRO])
@@ -137,9 +152,11 @@ const portfolioData = ref<IPortfolioOverview>({ ...SEED_DEMO_PORTFOLIO })
 
 const backtestResult = shallowRef<BacktestOutput | null>(null)
 const isBacktesting = ref(false)
+const backtestError = ref('')
+const isSampleBacktestResult = ref(false)
 
-// 时间格式化函数（精确到秒）
-const formatTimestamp = (d = new Date()) => {
+// 分模块独立时间戳与报错态（严禁全局时间戳掩盖局部失败，AUDIT 16/18）
+function formatTimestamp (d = new Date()) {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
@@ -149,14 +166,32 @@ const formatTimestamp = (d = new Date()) => {
   return `${y}-${m}-${day} ${hh}:${mm}:${ss}`
 }
 
-const lastUpdatedTime = ref(formatTimestamp())
+const overviewFetchedAt = ref('')
+const overviewError = ref('')
+const overviewUsingSeed = ref(true)
 
-// ==================== 用户专属自定义模拟账本系统（已抽离至 usePortfolio） ====================
+const marketsFetchedAt = ref('')
+const marketsError = ref('')
+const marketsUsingSeed = ref(true)
+
+const sectorsFetchedAt = ref('')
+const sectorsError = ref('')
+const sectorsUsingSeed = ref(true)
+
+let lastActiveFetchMs = 0
+
+// 用户专属自定义模拟账本系统
 const {
   portfolioMode,
   userPortfolio,
+  lastPersistError,
   currentDisplayPortfolio,
   cashPoolTicks,
+  currentWeekKey,
+  currentWeekCheckIn,
+  rebuyRuleStatus,
+  dividendValuation,
+  growthValuation,
   loadUserPortfolio,
   handleSavePortfolio,
   handleResetPortfolio,
@@ -168,8 +203,8 @@ const {
   formatTimestamp
 })
 
-// 分模块按需加载数据（仅在真实命中后端数据时返回 true 并刷新时间戳）
-const loadCycleTabData = async (force = false): Promise<boolean> => {
+async function loadCycleTabData(force = false): Promise<boolean> {
+  overviewError.value = ''
   let updated = false
   try {
     const [cRes, sRes] = await Promise.allSettled([
@@ -184,168 +219,271 @@ const loadCycleTabData = async (force = false): Promise<boolean> => {
       strategyData.value = sRes.value.data
       updated = true
     }
-  } catch {
-    // 优雅离线降级
+    if (updated) {
+      overviewFetchedAt.value = formatTimestamp()
+      overviewUsingSeed.value = false
+    }
+    else {
+      overviewError.value = '周期与策略接口未返回有效数据'
+    }
+  }
+  catch (err: any) {
+    overviewError.value = err?.message || '周期与策略接口连接失败'
   }
   return updated
 }
 
-const loadMarketsTabData = async (force = false): Promise<boolean> => {
+async function loadMarketsTabData(force = false): Promise<boolean> {
+  marketsError.value = ''
   try {
     const mRes = await getMarketQuotes(undefined, force)
     if (mRes?.data?.length) {
-      const quoteMap = new Map(mRes.data.map(q => [q.symbol.toUpperCase(), q]))
+      const quoteMap = new Map(mRes.data.map(q => [
+q.symbol.toUpperCase(),
+q
+]))
       globalEconomicData.value = globalEconomicData.value.map(item => quoteMap.get(item.symbol.toUpperCase()) ?? item)
-      hkUsMacroList.value = hkUsMacroList.value.map(item => {
+      hkUsMacroList.value = hkUsMacroList.value.map((item) => {
         const q = quoteMap.get(item.symbol.toUpperCase())
-        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+        return q
+? { ...item, price: q.price, change_pct: q.change_pct }
+: item
       })
-      twMacroList.value = twMacroList.value.map(item => {
+      twMacroList.value = twMacroList.value.map((item) => {
         const q = quoteMap.get(item.symbol.toUpperCase())
-        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+        return q
+? { ...item, price: q.price, change_pct: q.change_pct }
+: item
       })
-      cryptoAgriList.value = cryptoAgriList.value.map(item => {
+      cryptoAgriList.value = cryptoAgriList.value.map((item) => {
         const q = quoteMap.get(item.symbol.toUpperCase())
-        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+        return q
+? { ...item, price: q.price, change_pct: q.change_pct }
+: item
       })
-      krMacroList.value = krMacroList.value.map(item => {
+      krMacroList.value = krMacroList.value.map((item) => {
         const q = quoteMap.get(item.symbol.toUpperCase())
-        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+        return q
+? { ...item, price: q.price, change_pct: q.change_pct }
+: item
       })
-      jpMacroList.value = jpMacroList.value.map(item => {
+      jpMacroList.value = jpMacroList.value.map((item) => {
         const q = quoteMap.get(item.symbol.toUpperCase())
-        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+        return q
+? { ...item, price: q.price, change_pct: q.change_pct }
+: item
       })
-      asiaMacroList.value = asiaMacroList.value.map(item => {
+      asiaMacroList.value = asiaMacroList.value.map((item) => {
         const q = quoteMap.get(item.symbol.toUpperCase())
-        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+        return q
+? { ...item, price: q.price, change_pct: q.change_pct }
+: item
       })
-      fxList.value = fxList.value.map(item => {
+      fxList.value = fxList.value.map((item) => {
         const q = quoteMap.get(item.symbol.toUpperCase())
-        return q ? { ...item, price: q.price.toFixed(2), change_pct: q.change_pct } : item
+        return q
+? {
+...item,
+price: q.price.toFixed(2),
+change_pct: q.change_pct
+}
+: item
       })
-      preciousMetals.value = preciousMetals.value.map(item => {
-        const sym = item.name === '黄金' ? 'GOLD_OZ' : item.name === '白银' ? 'SILVER_OZ' : null
-        const q = sym ? quoteMap.get(sym) : null
-        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+      preciousMetals.value = preciousMetals.value.map((item) => {
+        const sym = item.name === '黄金'
+? 'GOLD_OZ'
+: item.name === '白银'
+? 'SILVER_OZ'
+: null
+        const q = sym
+? quoteMap.get(sym)
+: null
+        return q
+? { ...item, price: q.price, change_pct: q.change_pct }
+: item
       })
-      industrialMetals.value = industrialMetals.value.map(item => {
-        const sym = item.name === '铜' ? 'COPPER_HG' : null
-        const q = sym ? quoteMap.get(sym) : null
-        return q ? { ...item, price: q.price, change_pct: q.change_pct } : item
+      industrialMetals.value = industrialMetals.value.map((item) => {
+        const sym = item.name === '铜'
+? 'COPPER_HG'
+: null
+        const q = sym
+? quoteMap.get(sym)
+: null
+        return q
+? { ...item, price: q.price, change_pct: q.change_pct }
+: item
       })
+      marketsFetchedAt.value = formatTimestamp()
+      marketsUsingSeed.value = false
       return true
     }
-  } catch {
-    // 优雅离线降级
+    marketsError.value = '全球行情接口暂无数据返回'
+  }
+  catch (err: any) {
+    marketsError.value = err?.message || '全球行情拉取失败'
   }
   return false
 }
 
-const loadSectorsTabData = async (force = false): Promise<boolean> => {
+async function loadSectorsTabData(force = false): Promise<boolean> {
+  sectorsError.value = ''
   try {
     const secRes = await getIndustryMetrics(force)
     if (secRes?.data?.length) {
       sectorList.value = secRes.data
+      sectorsFetchedAt.value = formatTimestamp()
+      sectorsUsingSeed.value = false
       return true
     }
-  } catch {
-    // 优雅离线降级
+    sectorsError.value = '产业指标接口暂无返回'
+  }
+  catch (err: any) {
+    sectorsError.value = err?.message || '产业指标拉取失败'
   }
   return false
 }
 
-const loadPortfolioTabData = async (force = false): Promise<boolean> => {
+async function loadPortfolioTabData(force = false): Promise<boolean> {
   try {
     const pRes = await getPortfolioOverview(force)
     if (pRes?.data) {
       portfolioData.value = pRes.data
       return true
     }
-  } catch {
-    // 优雅离线降级
+  }
+  catch {
+    // 示范账本失败保留初始模板
   }
   return false
 }
 
-// 调度加载指定 Tab 数据（按需触发）
-const ensureTabData = async (tabKey: string, force = false) => {
-  let updated = false
-  if (tabKey === 'cycle') {
-    updated = await loadCycleTabData(force)
-  } else if (tabKey === 'markets') {
-    updated = await loadMarketsTabData(force)
-  } else if (tabKey === 'sectors') {
-    updated = await loadSectorsTabData(force)
-  } else if (tabKey === 'portfolio') {
-    updated = await loadPortfolioTabData(force)
+async function ensureTabData(tabKey: BottomTabKey, force = false) {
+  lastActiveFetchMs = Date.now()
+  if (tabKey === 'overview' || tabKey === 'research') {
+    await loadCycleTabData(force)
   }
-  if (updated) {
-    lastUpdatedTime.value = formatTimestamp()
+  else if (tabKey === 'markets') {
+    await Promise.all([
+      loadMarketsTabData(force),
+      loadSectorsTabData(force)
+    ])
+  }
+  else if (tabKey === 'portfolio') {
+    await Promise.all([
+      loadCycleTabData(force),
+      loadPortfolioTabData(force)
+    ])
   }
 }
 
-// 刷新当前活动 Tab，或全量重刷
-const loadAllData = async (force = false) => {
-  const results = await Promise.all([
+async function loadAllData(force = false) {
+  lastActiveFetchMs = Date.now()
+  await Promise.all([
     loadCycleTabData(force),
-    loadedTabs.value.markets ? loadMarketsTabData(force) : Promise.resolve(false),
-    loadedTabs.value.sectors ? loadSectorsTabData(force) : Promise.resolve(false),
-    loadedTabs.value.portfolio ? loadPortfolioTabData(force) : Promise.resolve(false)
+    overviewRef.value?.refreshOverviewSubModules?.(),
+    loadedTabs.value.markets
+? loadMarketsTabData(force)
+: Promise.resolve(false),
+    loadedTabs.value.markets
+? loadSectorsTabData(force)
+: Promise.resolve(false),
+    loadedTabs.value.portfolio
+? loadPortfolioTabData(force)
+: Promise.resolve(false)
   ])
-  if (results.some(Boolean)) {
-    lastUpdatedTime.value = formatTimestamp()
-  }
 }
 
-const handleRunBacktest = async () => {
+async function handleRunBacktest(params: { low_line: number, high_line: number, weekly_amount: number, days: number }) {
   isBacktesting.value = true
+  backtestError.value = ''
+  isSampleBacktestResult.value = false
   try {
-    const res = await runBacktest({
-      low_line: 0.16,
-      high_line: 0.28,
-      weekly_amount: 1000.0,
-      days: 800
-    })
-    if (res?.data && (res.code === 0 || res.code === undefined)) {
+    const res = await runBacktest(params)
+    if (res?.data?.summary && (res.code === 0 || res.code === undefined)) {
       backtestResult.value = res.data
-      uni.showToast({ title: '800交易日回测已完成', icon: 'success' })
-    } else {
-      backtestResult.value = FALLBACK_BACKTEST_DATA
-      uni.showToast({ title: '已呈现离线回测快照', icon: 'none' })
+      uni.showToast({ title: `${res.data.summary.trading_days}交易日回测已完成`, icon: 'success' })
     }
-  } catch {
-    backtestResult.value = FALLBACK_BACKTEST_DATA
-    uni.showToast({ title: '接口未连通，已展示离线回测快照', icon: 'none' })
-  } finally {
+    else {
+      backtestResult.value = null
+      backtestError.value = (res as any)?.msg || (res as any)?.message || '回测接口返回异常响应'
+      uni.showToast({ title: '回测计算失败', icon: 'none' })
+    }
+  }
+  catch (err: any) {
+    backtestResult.value = null
+    backtestError.value = err?.message || '回测服务连接失败（已拒绝使用样本数据冒充实时运行）'
+    uni.showToast({ title: '回测服务未连通', icon: 'none' })
+  }
+  finally {
     isBacktesting.value = false
   }
 }
 
-onLoad(() => {
-  // onLoad 阶段比 onMounted 早 50~150ms 触发，使网络拉取与 DOM 初始挂载完全并行
-  ensureTabData(activeTab.value)
-  loadUserPortfolio()
-})
+function handleShowSampleBacktest() {
+  backtestError.value = ''
+  isSampleBacktestResult.value = true
+  backtestResult.value = FALLBACK_BACKTEST_DATA
+  uni.showToast({ title: '已载入历史样例（2023-08~2026-11）', icon: 'none' })
+}
 
-let autoPollTimer: any = null
+let autoPollTimer: ReturnType<typeof setInterval> | null = null
+let isPageVisible = true
 
-onMounted(() => {
-  // 兜底保障
-  if (!loadedTabs.value[activeTab.value]) {
-    ensureTabData(activeTab.value)
-  }
-  // 挂载自动刷新轮询 (30秒静默同步活跃标签页数据)
-  autoPollTimer = setInterval(() => {
-    ensureTabData(activeTab.value, true)
-  }, 30_000)
-})
-
-onUnmounted(() => {
+function stopPolling() {
   if (autoPollTimer) {
     clearInterval(autoPollTimer)
     autoPollTimer = null
   }
+}
+
+function startPolling() {
+  stopPolling()
+  if (!isPageVisible)
+    return
+  autoPollTimer = setInterval(() => {
+    if (isPageVisible)
+      ensureTabData(activeTab.value, true)
+  }, 30_000)
+}
+
+onLoad((query: any) => {
+  const resolved = resolveBottomTabKey(query?.tab)
+  activeTab.value = resolved.tab
+  loadedTabs.value[resolved.tab] = true
+  if (resolved.marketSegment)
+    marketSegment.value = resolved.marketSegment
+
+  ensureTabData(activeTab.value)
+  loadUserPortfolio()
+})
+
+onMounted(() => {
+  if (!loadedTabs.value[activeTab.value]) {
+    loadedTabs.value[activeTab.value] = true
+    ensureTabData(activeTab.value)
+  }
+  startPolling()
+})
+
+onShow(() => {
+  isPageVisible = true
+  const stale = Date.now() - lastActiveFetchMs > 30_000
+  if (stale) {
+    ensureTabData(activeTab.value, true)
+    if (activeTab.value === 'overview')
+      overviewRef.value?.refreshOverviewSubModules?.()
+  }
+  startPolling()
+})
+
+onHide(() => {
+  isPageVisible = false
+  stopPolling()
+})
+
+onUnmounted(() => {
+  isPageVisible = false
+  stopPolling()
 })
 
 onPullDownRefresh(async () => {
@@ -355,36 +493,61 @@ onPullDownRefresh(async () => {
 
 const vixQuote = computed(() => globalEconomicData.value.find(item => item.symbol === 'VIX'))
 
-const switchTab = (key: string) => {
-  activeTab.value = key
-  if (!loadedTabs.value[key]) {
-    loadedTabs.value[key] = true
-    ensureTabData(key)
+function switchTab(rawKey: string) {
+  const resolved = resolveBottomTabKey(rawKey)
+  const targetTab = resolved.tab
+  if (resolved.marketSegment)
+    marketSegment.value = resolved.marketSegment
+
+  if (targetTab === activeTab.value)
+    return
+
+  tabScrollTops.value[activeTab.value] = currentScrollTop
+  activeTab.value = targetTab
+
+  if (!loadedTabs.value[targetTab]) {
+    loadedTabs.value[targetTab] = true
+    ensureTabData(targetTab)
   }
+
   uni.vibrateShort?.({ type: 'light' })
-  uni.pageScrollTo({ scrollTop: 0, duration: 150 })
+  nextTick(() => {
+    const savedY = tabScrollTops.value[targetTab] ?? 0
+    currentScrollTop = savedY
+    uni.pageScrollTo({ scrollTop: savedY, duration: 0 })
+  })
 }
 
-// ==================== 左右手势滑动支持 ====================
+// ==================== 左右手势滑动支持（touchcancel 严格忽略，防误切页） ====================
 let touchStartX = 0
 let touchStartY = 0
 let touchStartTime = 0
+let touchActive = false
 
-const onTouchStart = (e: any) => {
+function onTouchStart(e: any) {
   const touch = e.touches?.[0] || e.changedTouches?.[0]
   if (touch) {
+    touchActive = true
     touchStartX = touch.clientX
     touchStartY = touch.clientY
     touchStartTime = Date.now()
   }
 }
 
-const onTouchEnd = (e: any) => {
+function onTouchCancel() {
+  touchActive = false
+}
+
+function onTouchEnd(e: any) {
+  if (!touchActive)
+    return
+  touchActive = false
   const touch = e.changedTouches?.[0] || e.touches?.[0]
-  if (!touch) return
+  if (!touch)
+    return
 
   const nextTab = evaluateTabSwipe(
-    activeTab.value as BottomTabKey,
+    activeTab.value,
     BOTTOM_TAB_KEYS,
     touch.clientX - touchStartX,
     touch.clientY - touchStartY,
@@ -402,24 +565,26 @@ const onTouchEnd = (e: any) => {
       class="cc-page-shell px-3.5 pt-3 space-y-3.5 bg-[#090c0f] text-[#f1efea] min-h-screen"
       @touchstart="onTouchStart"
       @touchend="onTouchEnd"
-      @touchcancel="onTouchEnd"
+      @touchcancel="onTouchCancel"
     >
-      <!-- ==================== 1. 策略 Tab ==================== -->
-      <view v-if="loadedTabs.cycle" v-show="activeTab === 'cycle'">
-        <TabCycle
+      <!-- ==================== 1. 总览 Tab ==================== -->
+      <view v-if="loadedTabs.overview" v-show="activeTab === 'overview'">
+        <TabOverview
+          ref="overviewRef"
           :cycle-data="cycleData"
           :strategy-data="strategyData"
-          :last-updated-time="lastUpdatedTime"
-          :is-backtesting="isBacktesting"
-          :backtest-result="backtestResult"
+          :overview-fetched-at="overviewFetchedAt"
+          :overview-error="overviewError"
+          :overview-using-seed="overviewUsingSeed"
           @switch-tab="switchTab"
-          @run-backtest="handleRunBacktest"
+          @retry-overview="ensureTabData('overview', true)"
         />
       </view>
 
-      <!-- ==================== 2. 行情 Tab ==================== -->
+      <!-- ==================== 2. 市场 Tab ==================== -->
       <view v-if="loadedTabs.markets" v-show="activeTab === 'markets'">
-        <TabMarkets
+        <TabMarketHub
+          :initial-segment="marketSegment"
           :global-economic-data="globalEconomicData"
           :vix-quote="vixQuote"
           :hk-us-macro-list="hkUsMacroList"
@@ -434,13 +599,6 @@ const onTouchEnd = (e: any) => {
           :precious-metals="preciousMetals"
           :industrial-metals="industrialMetals"
           :other-metals="otherMetals"
-          :last-updated-time="lastUpdatedTime"
-        />
-      </view>
-
-      <!-- ==================== 3. 产业 Tab ==================== -->
-      <view v-if="loadedTabs.sectors" v-show="activeTab === 'sectors'">
-        <TabSectors
           :sector-list="sectorList"
           :ai-products="aiProducts"
           :ai-equipments="aiEquipments"
@@ -449,7 +607,27 @@ const onTouchEnd = (e: any) => {
           :semi-equip-list="semiEquipList"
           :semi-material-list="semiMaterialList"
           :dividend-core-list="dividendCoreList"
-          :last-updated-time="lastUpdatedTime"
+          :markets-fetched-at="marketsFetchedAt"
+          :markets-error="marketsError"
+          :markets-using-seed="marketsUsingSeed"
+          :sectors-fetched-at="sectorsFetchedAt"
+          :sectors-error="sectorsError"
+          :sectors-using-seed="sectorsUsingSeed"
+          @retry-markets="loadMarketsTabData(true)"
+          @retry-sectors="loadSectorsTabData(true)"
+        />
+      </view>
+
+      <!-- ==================== 3. 研究 Tab ==================== -->
+      <view v-if="loadedTabs.research" v-show="activeTab === 'research'">
+        <TabResearch
+          :strategy-data="strategyData"
+          :is-backtesting="isBacktesting"
+          :backtest-result="backtestResult"
+          :backtest-error="backtestError"
+          :is-sample-result="isSampleBacktestResult"
+          @run-backtest="handleRunBacktest"
+          @show-sample-backtest="handleShowSampleBacktest"
         />
       </view>
 
@@ -461,6 +639,12 @@ const onTouchEnd = (e: any) => {
           :cash-pool-ticks="cashPoolTicks"
           :strategy-data="strategyData"
           :user-portfolio="userPortfolio"
+          :current-week-key="currentWeekKey"
+          :current-week-check-in="currentWeekCheckIn"
+          :last-persist-error="lastPersistError"
+          :rebuy-rule-status="rebuyRuleStatus"
+          :dividend-valuation="dividendValuation"
+          :growth-valuation="growthValuation"
           @weekly-check-in="handleWeeklyCheckIn"
           @rebuy-cash-pool="handleRebuyCashPool"
           @save-portfolio="handleSavePortfolio"
@@ -468,9 +652,9 @@ const onTouchEnd = (e: any) => {
         />
       </view>
 
-      <!-- 底部暗场仪器 TabBar（参考 dir-1 与 dir-4 命名及图标） -->
+      <!-- 底部 4 Tab 主导航：总览 / 市场 / 研究 / 账本 -->
       <view class="cc-bottom-tabbar fixed bottom-0 left-0 right-0 z-40">
-        <view class="grid grid-cols-4 h-[56px]">
+        <view class="grid grid-cols-4 min-h-[56px] py-1">
           <view
             v-for="item in tabs"
             :key="item.key"
@@ -483,11 +667,11 @@ const onTouchEnd = (e: any) => {
             />
             <image
               :src="activeTab === item.key ? item.iconOn : item.iconOff"
-              class="w-[21px] h-[21px]"
+              class="w-[21px] h-[21px] shrink-0"
               mode="aspectFit"
             />
             <text
-              class="text-[10px] leading-none mt-1"
+              class="text-[10px] leading-tight mt-1 whitespace-nowrap"
               :class="activeTab === item.key ? 'text-[#e5b352] font-bold' : 'text-[#6e7b86] font-medium'"
             >
               {{ item.label }}

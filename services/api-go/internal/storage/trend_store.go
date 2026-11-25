@@ -552,9 +552,177 @@ func (s *SQLiteStore) InsertTrendEvents(events []TrendEventEntity) error {
 	if len(events) == 0 {
 		return nil
 	}
-	return s.execInTx(func(tx *sql.Tx) error {
+	if err := s.execInTx(func(tx *sql.Tx) error {
 		return insertTrendEventsTx(tx, events)
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// PublishTrendSnapshotWithFrozen atomically publishes snapshot + frozen per-asset bar revisions.
+func (s *SQLiteStore) PublishTrendSnapshotWithFrozen(
+	snapshot TrendSnapshotEntity,
+	metrics []TrendDailyMetricEntity,
+	rankings []StrengthDailyRankingEntity,
+	events []TrendEventEntity,
+	barsByAsset map[string][]DailyBarEntity,
+) error {
+	return s.execInTx(func(tx *sql.Tx) error {
+		if err := publishSnapshotCoreTx(tx, snapshot, metrics, rankings, events); err != nil {
+			return err
+		}
+		if len(barsByAsset) == 0 {
+			return nil
+		}
+		stmt, err := tx.Prepare(`
+			INSERT INTO trend_snapshot_frozen_bars (
+				snapshot_id, asset_id, trading_date, provider, revision,
+				open, high, low, close, adjusted_close, total_return_index,
+				volume, turnover, dividend_yield, yield_pct, quality_status, as_of, available_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(snapshot_id, asset_id, trading_date) DO UPDATE SET
+				provider = excluded.provider,
+				revision = excluded.revision,
+				open = excluded.open,
+				high = excluded.high,
+				low = excluded.low,
+				close = excluded.close,
+				adjusted_close = excluded.adjusted_close,
+				total_return_index = excluded.total_return_index,
+				volume = excluded.volume,
+				turnover = excluded.turnover,
+				dividend_yield = excluded.dividend_yield,
+				yield_pct = excluded.yield_pct,
+				quality_status = excluded.quality_status,
+				as_of = excluded.as_of,
+				available_at = excluded.available_at,
+				updated_at = excluded.updated_at
+		`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		for assetID, list := range barsByAsset {
+			for _, b := range list {
+				if _, err := stmt.Exec(
+					snapshot.SnapshotID, assetID, b.TradingDate, b.Provider, b.Revision,
+					nullFloat(b.Open), nullFloat(b.High), nullFloat(b.Low), nullFloat(b.Close),
+					nullFloat(b.AdjustedClose), nullFloat(b.TotalReturnIndex),
+					nullFloat(b.Volume), nullFloat(b.Turnover), nullFloat(b.DividendYield), nullFloat(b.YieldPct),
+					b.QualityStatus, b.AsOf, b.AvailableAt, b.UpdatedAt,
+				); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	})
+}
+
+func publishSnapshotCoreTx(
+	tx *sql.Tx,
+	snapshot TrendSnapshotEntity,
+	metrics []TrendDailyMetricEntity,
+	rankings []StrengthDailyRankingEntity,
+	events []TrendEventEntity,
+) error {
+	if snapshot.IsCurrent {
+		if _, err := tx.Exec(
+			`UPDATE trend_snapshots SET is_current = 0
+			 WHERE scope_id = ? AND currency = ? AND mode = ? AND is_current = 1`,
+			snapshot.ScopeID, snapshot.Currency, snapshot.Mode,
+		); err != nil {
+			return err
+		}
+	}
+
+	meta := snapshot.MetaJSON
+	if meta == "" {
+		meta = "{}"
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO trend_snapshots (
+			snapshot_id, scope_id, currency, mode, as_of, computed_at,
+			algorithm_version, candidate_count, valid_count, coverage,
+			status, is_current, meta_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(snapshot_id) DO UPDATE SET
+			scope_id = excluded.scope_id,
+			currency = excluded.currency,
+			mode = excluded.mode,
+			as_of = excluded.as_of,
+			computed_at = excluded.computed_at,
+			algorithm_version = excluded.algorithm_version,
+			candidate_count = excluded.candidate_count,
+			valid_count = excluded.valid_count,
+			coverage = excluded.coverage,
+			status = excluded.status,
+			is_current = excluded.is_current,
+			meta_json = excluded.meta_json
+	`,
+		snapshot.SnapshotID, snapshot.ScopeID, snapshot.Currency, snapshot.Mode,
+		snapshot.AsOf, snapshot.ComputedAt, snapshot.AlgorithmVersion,
+		snapshot.CandidateCount, snapshot.ValidCount, nullFloat(snapshot.Coverage),
+		snapshot.Status, boolToInt(snapshot.IsCurrent), meta,
+	); err != nil {
+		return err
+	}
+
+	if err := upsertTrendDailyMetricsTx(tx, metrics); err != nil {
+		return err
+	}
+	if err := upsertStrengthDailyRankingsTx(tx, rankings); err != nil {
+		return err
+	}
+	if err := insertTrendEventsTx(tx, events); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetFrozenSnapshotBars returns frozen daily bars captured when snapshotID was published.
+func (s *SQLiteStore) GetFrozenSnapshotBars(snapshotID, assetID string) ([]DailyBarEntity, error) {
+	rows, err := s.db.Query(`
+		SELECT asset_id, trading_date, provider, revision,
+		       open, high, low, close, adjusted_close, total_return_index,
+		       volume, turnover, dividend_yield, yield_pct,
+		       quality_status, as_of, available_at, updated_at
+		FROM trend_snapshot_frozen_bars
+		WHERE snapshot_id = ? AND asset_id = ?
+		ORDER BY trading_date ASC`, snapshotID, assetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []DailyBarEntity
+	for rows.Next() {
+		var b DailyBarEntity
+		var open, high, low, closeP, adjClose, tri sql.NullFloat64
+		var vol, turnover, divYield, yieldPct sql.NullFloat64
+		if err := rows.Scan(
+			&b.AssetID, &b.TradingDate, &b.Provider, &b.Revision,
+			&open, &high, &low, &closeP, &adjClose, &tri,
+			&vol, &turnover, &divYield, &yieldPct,
+			&b.QualityStatus, &b.AsOf, &b.AvailableAt, &b.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		b.Open = floatPtr(open)
+		b.High = floatPtr(high)
+		b.Low = floatPtr(low)
+		b.Close = floatPtr(closeP)
+		b.AdjustedClose = floatPtr(adjClose)
+		b.TotalReturnIndex = floatPtr(tri)
+		b.Volume = floatPtr(vol)
+		b.Turnover = floatPtr(turnover)
+		b.DividendYield = floatPtr(divYield)
+		b.YieldPct = floatPtr(yieldPct)
+		list = append(list, b)
+	}
+	return list, rows.Err()
 }
 
 // PublishTrendSnapshot atomically writes a snapshot, its metrics/rankings/events,
@@ -566,58 +734,7 @@ func (s *SQLiteStore) PublishTrendSnapshot(
 	events []TrendEventEntity,
 ) error {
 	return s.execInTx(func(tx *sql.Tx) error {
-		if snapshot.IsCurrent {
-			if _, err := tx.Exec(
-				`UPDATE trend_snapshots SET is_current = 0
-				 WHERE scope_id = ? AND currency = ? AND mode = ? AND is_current = 1`,
-				snapshot.ScopeID, snapshot.Currency, snapshot.Mode,
-			); err != nil {
-				return err
-			}
-		}
-
-		meta := snapshot.MetaJSON
-		if meta == "" {
-			meta = "{}"
-		}
-		if _, err := tx.Exec(`
-			INSERT INTO trend_snapshots (
-				snapshot_id, scope_id, currency, mode, as_of, computed_at,
-				algorithm_version, candidate_count, valid_count, coverage,
-				status, is_current, meta_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(snapshot_id) DO UPDATE SET
-				scope_id = excluded.scope_id,
-				currency = excluded.currency,
-				mode = excluded.mode,
-				as_of = excluded.as_of,
-				computed_at = excluded.computed_at,
-				algorithm_version = excluded.algorithm_version,
-				candidate_count = excluded.candidate_count,
-				valid_count = excluded.valid_count,
-				coverage = excluded.coverage,
-				status = excluded.status,
-				is_current = excluded.is_current,
-				meta_json = excluded.meta_json
-		`,
-			snapshot.SnapshotID, snapshot.ScopeID, snapshot.Currency, snapshot.Mode,
-			snapshot.AsOf, snapshot.ComputedAt, snapshot.AlgorithmVersion,
-			snapshot.CandidateCount, snapshot.ValidCount, nullFloat(snapshot.Coverage),
-			snapshot.Status, boolToInt(snapshot.IsCurrent), meta,
-		); err != nil {
-			return err
-		}
-
-		if err := upsertTrendDailyMetricsTx(tx, metrics); err != nil {
-			return err
-		}
-		if err := upsertStrengthDailyRankingsTx(tx, rankings); err != nil {
-			return err
-		}
-		if err := insertTrendEventsTx(tx, events); err != nil {
-			return err
-		}
-		return nil
+		return publishSnapshotCoreTx(tx, snapshot, metrics, rankings, events)
 	})
 }
 
@@ -858,6 +975,127 @@ func (s *SQLiteStore) GetDailyBars(assetID, fromDate, toDate string, limit int) 
 		list = append(list, b)
 	}
 	return list, rows.Err()
+}
+
+// ListDailyBarsForAssets 批量按资产 ID 列表与截止日查询日线，按资产与交易日升序去重，避免 N+1 查询。
+func (s *SQLiteStore) ListDailyBarsForAssets(assetIDs []string, toDate string) (map[string][]DailyBarEntity, error) {
+	result := make(map[string][]DailyBarEntity, len(assetIDs))
+	if len(assetIDs) == 0 {
+		return result, nil
+	}
+
+	args := make([]any, 0, len(assetIDs)+1)
+	placeholders := make([]string, len(assetIDs))
+	for i, id := range assetIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+
+	conds := []string{fmt.Sprintf("asset_id IN (%s)", strings.Join(placeholders, ","))}
+	if toDate != "" {
+		conds = append(conds, "trading_date <= ?")
+		args = append(args, toDate)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT asset_id, trading_date, provider, revision,
+		       open, high, low, close, adjusted_close, total_return_index,
+		       volume, turnover, float_market_cap, fund_aum, dividend_yield, yield_pct,
+		       quality_status, as_of, available_at, updated_at
+		FROM daily_bars
+		WHERE %s
+		ORDER BY asset_id ASC, trading_date ASC, provider ASC, revision DESC`, strings.Join(conds, " AND "))
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	lastDateByAsset := make(map[string]string, len(assetIDs))
+	for rows.Next() {
+		var b DailyBarEntity
+		var open, high, low, closeP, adjClose, tri sql.NullFloat64
+		var vol, turnover, fmc, aum, divYield, yieldPct sql.NullFloat64
+		if err := rows.Scan(
+			&b.AssetID, &b.TradingDate, &b.Provider, &b.Revision,
+			&open, &high, &low, &closeP, &adjClose, &tri,
+			&vol, &turnover, &fmc, &aum, &divYield, &yieldPct,
+			&b.QualityStatus, &b.AsOf, &b.AvailableAt, &b.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if lastDateByAsset[b.AssetID] == b.TradingDate {
+			continue
+		}
+		lastDateByAsset[b.AssetID] = b.TradingDate
+		b.Open = floatPtr(open)
+		b.High = floatPtr(high)
+		b.Low = floatPtr(low)
+		b.Close = floatPtr(closeP)
+		b.AdjustedClose = floatPtr(adjClose)
+		b.TotalReturnIndex = floatPtr(tri)
+		b.Volume = floatPtr(vol)
+		b.Turnover = floatPtr(turnover)
+		b.FloatMarketCap = floatPtr(fmc)
+		b.FundAUM = floatPtr(aum)
+		b.DividendYield = floatPtr(divYield)
+		b.YieldPct = floatPtr(yieldPct)
+		result[b.AssetID] = append(result[b.AssetID], b)
+	}
+	return result, rows.Err()
+}
+
+type FXRateEntity struct {
+	Pair        string
+	TradingDate string
+	Rate        float64
+	Provider    string
+	UpdatedAt   string
+}
+
+// ListFXRates 批量查询汇率表序列（按 pair 与交易日升序）。
+func (s *SQLiteStore) ListFXRates(pairs []string, toDate string) (map[string][]FXRateEntity, error) {
+	result := make(map[string][]FXRateEntity)
+	var conds []string
+	var args []any
+	if len(pairs) > 0 {
+		placeholders := make([]string, len(pairs))
+		for i, p := range pairs {
+			placeholders[i] = "?"
+			args = append(args, p)
+		}
+		conds = append(conds, fmt.Sprintf("pair IN (%s)", strings.Join(placeholders, ",")))
+	}
+	if toDate != "" {
+		conds = append(conds, "trading_date <= ?")
+		args = append(args, toDate)
+	}
+	query := `SELECT pair, trading_date, rate, provider, updated_at FROM fx_rates`
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
+	}
+	query += " ORDER BY pair ASC, trading_date ASC, provider ASC"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	lastDate := make(map[string]string)
+	for rows.Next() {
+		var f FXRateEntity
+		if err := rows.Scan(&f.Pair, &f.TradingDate, &f.Rate, &f.Provider, &f.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if lastDate[f.Pair] == f.TradingDate {
+			continue
+		}
+		lastDate[f.Pair] = f.TradingDate
+		result[f.Pair] = append(result[f.Pair], f)
+	}
+	return result, rows.Err()
 }
 
 func scanSnapshot(scanner interface{ Scan(...any) error }) (*TrendSnapshotEntity, error) {

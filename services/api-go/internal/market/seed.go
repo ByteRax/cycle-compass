@@ -37,9 +37,11 @@ type KnownAssetInfo struct {
 }
 
 var KnownAssets = map[string]KnownAssetInfo{
-	// 策略核心指数
+	// 策略核心指数与对应场内 ETF（严格区分信号指数与可交易 ETF）
 	"930955": {Name: "红利低波100", Category: "equity", Currency: "CNY", DefaultPrice: 11878.27},
 	"399673": {Name: "创业板50", Category: "equity", Currency: "CNY", DefaultPrice: 2192.80},
+	"515100": {Name: "红利低波100ETF(515100)", Category: "etf", Currency: "CNY", DefaultPrice: 0},
+	"159949": {Name: "创业板50ETF(159949)", Category: "etf", Currency: "CNY", DefaultPrice: 0},
 	"000300": {Name: "沪深300", Category: "equity", Currency: "CNY", DefaultPrice: 3892.45},
 	"000905": {Name: "中证500", Category: "equity", Currency: "CNY", DefaultPrice: 5740.12},
 	"000688": {Name: "科创50", Category: "equity", Currency: "CNY", DefaultPrice: 982.30},
@@ -197,7 +199,7 @@ func (s *SeedProvider) GetQuote(symbol string) dto.MarketQuote {
 			Name:         symbol,
 			Category:     "equity",
 			Currency:     "CNY",
-			DefaultPrice: 100.0,
+			DefaultPrice: 0,
 		}
 	}
 
@@ -205,6 +207,9 @@ func (s *SeedProvider) GetQuote(symbol string) dto.MarketQuote {
 	changePct := info.DefaultChangePct
 	change := math.Round(price*changePct/100.0*10000) / 10000
 	asOf := "2026-11-20"
+	status := "offline_seed"
+	sourceName := "Offline Seed CSV / Snapshot"
+	warning := "离线种子快照数据，已按最新归档日期提供"
 
 	if symbol == "930955" {
 		points := s.GetHistoricalKlines("930955", 2)
@@ -248,6 +253,12 @@ func (s *SeedProvider) GetQuote(symbol string) dto.MarketQuote {
 				}
 			}
 		}
+	} else if price <= 0 {
+		// 无离线真实收盘且未联网的 ETF/标的，绝不使用指数点位或假价格冒充
+		asOf = ""
+		status = "unavailable"
+		sourceName = "Quote Unavailable"
+		warning = "暂未获取该标的真实成交报价（不以信号指数估算），请联网刷新"
 	}
 
 	return dto.MarketQuote{
@@ -260,12 +271,12 @@ func (s *SeedProvider) GetQuote(symbol string) dto.MarketQuote {
 		Currency:  info.Currency,
 		AsOf:      asOf,
 		Meta: dto.DataSourceMeta{
-			SourceName: "Offline Seed CSV / Snapshot",
+			SourceName: sourceName,
 			Symbol:     symbol,
 			AsOf:       asOf,
-			Status:     "offline_seed",
+			Status:     status,
 			LatencyMs:  floatPtr(0.0),
-			Warning:    strPtr("离线种子快照数据，已按最新归档日期提供"),
+			Warning:    strPtr(warning),
 			UpdatedAt:  time.Now().Format("2006-01-02T15:04:05.000000"),
 		},
 	}
@@ -281,21 +292,39 @@ func (s *SeedProvider) GetQuotesBatch(symbols []string) []dto.MarketQuote {
 
 func (s *SeedProvider) GetMacroIndicators() []dto.GlobalMacroIndicator {
 	nowStr := time.Now().Format("2006-01-02T15:04:05.000000")
+	cn10yVal := 0.0
+	cn10yDate := ""
+	cn10yStatus := "unavailable"
+	cn10yTrend := "flat"
+	if bondPts := s.GetHistoricalKlines("CN10Y", 5); len(bondPts) > 0 {
+		last := bondPts[len(bondPts)-1]
+		cn10yVal = math.Round(last.Close*10000) / 10000
+		cn10yDate = last.Date
+		cn10yStatus = "offline_seed"
+		if len(bondPts) >= 2 {
+			prev := bondPts[len(bondPts)-2]
+			if last.Close < prev.Close {
+				cn10yTrend = "down"
+			} else if last.Close > prev.Close {
+				cn10yTrend = "up"
+			}
+		}
+	}
 	return []dto.GlobalMacroIndicator{
 		{
 			Code:          "CN10Y",
 			Name:          "中国十年期国债收益率",
-			Value:         1.5803,
+			Value:         cn10yVal,
 			Unit:          "%",
 			Period:        "日度",
-			Trend:         "down",
+			Trend:         cn10yTrend,
 			Percentile10y: floatPtr(0.05),
-			AsOf:          "2026-11-20",
+			AsOf:          cn10yDate,
 			Meta: dto.DataSourceMeta{
-				SourceName: "中国债券信息网/种子数据",
+				SourceName: "中国债券信息网/CSV归档",
 				Symbol:     "CN10Y",
-				AsOf:       "2026-11-20",
-				Status:     "offline_seed",
+				AsOf:       cn10yDate,
+				Status:     cn10yStatus,
 				UpdatedAt:  nowStr,
 			},
 		},
@@ -407,6 +436,10 @@ var rawSectorsList = []rawSector{
 	{"rare_earth", "稀土", "🧲", 1.37, "底部企稳", 74.0, "出口配额调控与人形机器人磁材需求"},
 }
 
+func ListIndustryBriefs() []dto.IndustryMetric {
+	return (&SeedProvider{}).GetIndustryMetrics()
+}
+
 func (s *SeedProvider) GetIndustryMetrics() []dto.IndustryMetric {
 	metrics := make([]dto.IndustryMetric, 0, len(rawSectorsList))
 	nowStr := time.Now().Format("2006-01-02T15:04:05.000000")
@@ -423,11 +456,14 @@ func (s *SeedProvider) GetIndustryMetrics() []dto.IndustryMetric {
 			Unit:            "点",
 			Catalyst:        sec.Catalyst,
 			AsOf:            "2026-11-20",
+			DataDate:        "2026-11-20",
+			IsReference:     true,
 			Meta: dto.DataSourceMeta{
-				SourceName: "Global Industry Tracking / 离线快照",
+				SourceName: "Global Industry Tracking / 静态参考快照",
 				Symbol:     sec.ID,
 				AsOf:       "2026-11-20",
 				Status:     "offline_seed",
+				Warning:    strPtr("行业专题与景气指标为归档研究参考，非实时盘口行情"),
 				UpdatedAt:  nowStr,
 			},
 		})

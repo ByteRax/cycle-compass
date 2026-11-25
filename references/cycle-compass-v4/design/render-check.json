@@ -1,0 +1,212 @@
+{
+  "screens": [
+    {
+      "screen": 1,
+      "slug": "market_entry",
+      "bodyHeight": 656,
+      "scrollHeight": 667,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 2,
+      "slug": "asset_overview",
+      "bodyHeight": 656,
+      "scrollHeight": 886,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 3,
+      "slug": "etf_category",
+      "bodyHeight": 656,
+      "scrollHeight": 796,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 4,
+      "slug": "asset_detail",
+      "bodyHeight": 656,
+      "scrollHeight": 777,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 5,
+      "slug": "category_detail",
+      "bodyHeight": 656,
+      "scrollHeight": 976,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 6,
+      "slug": "asset_search",
+      "bodyHeight": 726,
+      "scrollHeight": 726,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 7,
+      "slug": "trend_curve",
+      "bodyHeight": 656,
+      "scrollHeight": 768,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 8,
+      "slug": "annual_comparison",
+      "bodyHeight": 656,
+      "scrollHeight": 802,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 9,
+      "slug": "component_trends",
+      "bodyHeight": 656,
+      "scrollHeight": 829,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 10,
+      "slug": "trend_dashboard",
+      "bodyHeight": 656,
+      "scrollHeight": 926,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 11,
+      "slug": "solar_terms",
+      "bodyHeight": 656,
+      "scrollHeight": 823,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 12,
+      "slug": "right_distribution",
+      "bodyHeight": 656,
+      "scrollHeight": 794,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 13,
+      "slug": "tier_board",
+      "bodyHeight": 656,
+      "scrollHeight": 702,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 14,
+      "slug": "favorites",
+      "bodyHeight": 656,
+      "scrollHeight": 690,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 15,
+      "slug": "chart_settings",
+      "bodyHeight": 726,
+      "scrollHeight": 726,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 16,
+      "slug": "report_preview",
+      "bodyHeight": 726,
+      "scrollHeight": 726,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 17,
+      "slug": "research_settings",
+      "bodyHeight": 726,
+      "scrollHeight": 731,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 18,
+      "slug": "light_overview",
+      "bodyHeight": 656,
+      "scrollHeight": 886,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 19,
+      "slug": "data_status",
+      "bodyHeight": 726,
+      "scrollHeight": 726,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 20,
+      "slug": "empty_states",
+      "bodyHeight": 726,
+      "scrollHeight": 746,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 21,
+      "slug": "methodology",
+      "bodyHeight": 726,
+      "scrollHeight": 726,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    },
+    {
+      "screen": 22,
+      "slug": "rotation_compass",
+      "bodyHeight": 726,
+      "scrollHeight": 726,
+      "overflow": 0,
+      "phoneWidth": 375,
+      "phoneHeight": 812
+    }
+  ],
+  "page_errors": [],
+  "navigation_theme_search_checks": "PASS",
+  "additional_checks": {
+    "scroll_state_count": 9,
+    "report_count": 7,
+    "screen_png_size": "1125 x 2436",
+    "report_width": 1080,
+    "report_preview_final_bounds": "container height 430px, rendered report height 416.62px",
+    "scope": "HTML prototype Chromium render, not repository build nor WeChat device test"
+  }
+}

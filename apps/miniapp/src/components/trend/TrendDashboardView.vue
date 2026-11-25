@@ -1,9 +1,11 @@
 <script lang="ts" setup>
 import type { DashboardRow, TrendDashboardResponse } from '@/api/types/trend'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getTrendDashboard } from '@/api/trend'
 import TrendTempBadge from '@/components/finance/TrendTempBadge.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace, unwrapApiResponse } from '@/utils/asyncRace'
+import { buildFinanceUrl, toApiCurrency } from '@/utils/financeRoute'
 import { formatDurationBadge } from '@/utils/trendDict'
 
 interface Props {
@@ -25,7 +27,7 @@ const financeStore = useFinanceStore()
 const isDark = computed(() => financeStore.isDarkEffective)
 
 type PresetKey = 'daily' | 'weekly' | 'monthly' | 'custom'
-type SortKey = 'strength' | 'change' | 'turnover' | 'duration'
+type SortKey = 'strength' | 'change' | 'turnover' | 'duration_trading_days'
 
 const REPORT_PRESETS: Array<{ key: Exclude<PresetKey, 'custom'>, label: string, changePeriod: string, sparkRange: string }> = [
   {
@@ -67,7 +69,7 @@ const SORT_OPTIONS: Array<{ key: SortKey, label: string }> = [
   { key: 'strength', label: '相对强度' },
   { key: 'change', label: '涨跌幅' },
   { key: 'turnover', label: '成交额' },
-  { key: 'duration', label: '持续天数' }
+  { key: 'duration_trading_days', label: '持续天数' }
 ]
 
 const activePreset = ref<PresetKey>('daily')
@@ -81,9 +83,16 @@ const errorMsg = ref('')
 const data = ref<TrendDashboardResponse | null>(null)
 const collapsedGroups = ref<Set<string>>(new Set())
 
+const race = createAsyncRace()
+
+onUnmounted(() => {
+  race.invalidate()
+})
+
 async function fetchData () {
   if (!props.assetId)
     return
+  const token = race.next()
   loading.value = true
   errorMsg.value = ''
   try {
@@ -93,17 +102,24 @@ async function fetchData () {
       sort: sortBy.value,
       order: sortOrder.value,
       scope_id: props.scopeId,
-      currency: props.currency,
+      currency: props.currency
+? toApiCurrency(props.currency)
+: undefined,
       snapshot_id: props.snapshotId
     })
-    data.value = res.data ?? null
+    if (!race.isLatest(token))
+      return
+    data.value = unwrapApiResponse(res, '趋势仪表盘加载失败')
   }
   catch (err: any) {
+    if (!race.isLatest(token))
+      return
     errorMsg.value = err?.message || '趋势仪表盘加载失败'
     data.value = null
   }
   finally {
-    loading.value = false
+    if (race.isLatest(token))
+      loading.value = false
   }
 }
 
@@ -272,7 +288,14 @@ function getStrengthWidth (score: number | null | undefined): string {
 
 function navigateToAsset (assetId: string) {
   uni.navigateTo({
-    url: `/pages-sub/finance/asset?id=${encodeURIComponent(assetId)}`
+    url: buildFinanceUrl('/pages-sub/finance/asset', {
+      asset_id: assetId,
+      scope_id: props.scopeId || props.assetId,
+      currency: (props.currency as any) || undefined,
+      range: (props.range as any) || undefined,
+      snapshot_mode: props.snapshotId ? 'fixed' : 'latest',
+      snapshot_id: props.snapshotId || ''
+    })
   })
 }
 

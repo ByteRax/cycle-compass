@@ -10,20 +10,25 @@ type SourceDateMeta struct {
 
 // SnapshotMeta 描述趋势计算快照的元数据与覆盖率。
 type SnapshotMeta struct {
-	SnapshotID       string           `json:"snapshot_id"`
-	AsOf             string           `json:"as_of"`
-	ComputedAt       string           `json:"computed_at"`
-	AlgorithmVersion string           `json:"algorithm_version"`
-	Currency         string           `json:"currency"`
-	ScopeID          string           `json:"scope_id"`
-	ScopeLabel       string           `json:"scope_label"`
-	CandidateCount   int              `json:"candidate_count"`
-	ValidCount       int              `json:"valid_count"`
-	Coverage         *float64         `json:"coverage"`
-	Mode             string           `json:"mode"`
-	Status           string           `json:"status"`
-	SourceDates      []SourceDateMeta `json:"source_dates"`
-	Warnings         []string         `json:"warnings"`
+	SnapshotID          string           `json:"snapshot_id"`
+	AsOf                string           `json:"as_of"`
+	ComputedAt          string           `json:"computed_at"`
+	AlgorithmVersion    string           `json:"algorithm_version"`
+	Currency            string           `json:"currency"`
+	RequestedCurrency   string           `json:"requested_currency,omitempty"`
+	EffectiveCurrency   string           `json:"effective_currency,omitempty"`
+	ScopeID             string           `json:"scope_id"`
+	ScopeLabel          string           `json:"scope_label"`
+	CandidateCount      int              `json:"candidate_count"`
+	ValidCount          int              `json:"valid_count"`
+	Coverage            *float64         `json:"coverage"`
+	Mode                string           `json:"mode"`
+	Status              string           `json:"status"`
+	IsCurrent           bool             `json:"is_current"`
+	IsExpired           bool             `json:"is_expired,omitempty"`
+	RequestedSnapshotID string           `json:"requested_snapshot_id,omitempty"`
+	SourceDates         []SourceDateMeta `json:"source_dates"`
+	Warnings            []string         `json:"warnings"`
 }
 
 // StrengthInfo 描述相对强度池内排名与得分。
@@ -79,6 +84,8 @@ type AssetSummaryItem struct {
 	Name          string       `json:"name"`
 	ShortName     string       `json:"short_name"`
 	AssetType     string       `json:"asset_type"`
+	ObjectType    string       `json:"object_type,omitempty"`
+	RouteTarget   string       `json:"route_target,omitempty"`
 	MeasureType   string       `json:"measure_type"`
 	Unit          string       `json:"unit"`
 	Currency      string       `json:"currency"`
@@ -117,14 +124,16 @@ type CatalogCategoryItem struct {
 }
 
 type CatalogOverview struct {
-	RightCount    int      `json:"right_count"`
-	LeftCount     int      `json:"left_count"`
-	OtherCount    int      `json:"other_count"`
-	ValidCount    int      `json:"valid_count"`
-	TotalCount    int      `json:"total_count"`
-	RightRatioPct *float64 `json:"right_ratio_pct"`
-	LeftRatioPct  *float64 `json:"left_ratio_pct"`
-	OtherRatioPct *float64 `json:"other_ratio_pct"`
+	RightCount     int      `json:"right_count"`
+	LeftCount      int      `json:"left_count"`
+	FormingCount   int      `json:"forming_count"`
+	OtherCount     int      `json:"other_count"`
+	UncoveredCount int      `json:"uncovered_count"`
+	ValidCount     int      `json:"valid_count"`
+	TotalCount     int      `json:"total_count"`
+	RightRatioPct  *float64 `json:"right_ratio_pct"`
+	LeftRatioPct   *float64 `json:"left_ratio_pct"`
+	OtherRatioPct  *float64 `json:"other_ratio_pct"`
 }
 
 type CatalogResponse struct {
@@ -140,18 +149,41 @@ type UniversesResponse struct {
 }
 
 type SearchAssetsResponse struct {
-	Items      []AssetSummaryItem `json:"items"`
-	NextCursor *string            `json:"next_cursor"`
-	Total      int                `json:"total"`
+	Items          []AssetSummaryItem `json:"items"`
+	NextCursor     *string            `json:"next_cursor"`
+	Total          int                `json:"total"`
+	UncoveredCount int                `json:"uncovered_count"`
+	UncoveredNames []string           `json:"uncovered_names,omitempty"`
+}
+
+type EnumOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+type AssetEnumsResponse struct {
+	SearchTypes    []EnumOption `json:"search_types"`
+	AssetTypes     []EnumOption `json:"asset_types"`
+	SortFields     []EnumOption `json:"sort_fields"`
+	DashboardSorts []EnumOption `json:"dashboard_sorts"`
+	MatrixSorts    []EnumOption `json:"matrix_sorts"`
+	Currencies     []EnumOption `json:"currencies"`
+	Statuses       []EnumOption `json:"statuses"`
 }
 
 type MembersResponse struct {
-	Snapshot   SnapshotMeta       `json:"snapshot"`
-	ParentID   string             `json:"parent_id"`
-	ParentName string             `json:"parent_name"`
-	Items      []AssetSummaryItem `json:"items"`
-	NextCursor *string            `json:"next_cursor"`
-	Total      int                `json:"total"`
+	Snapshot         SnapshotMeta       `json:"snapshot"`
+	ParentID         string             `json:"parent_id"`
+	ParentName       string             `json:"parent_name"`
+	Items            []AssetSummaryItem `json:"items"`
+	NextCursor       *string            `json:"next_cursor"`
+	Total            int                `json:"total"`
+	PoolTotal        int                `json:"pool_total"`
+	ValidCount       int                `json:"valid_count"`
+	MatchedTotal     int                `json:"matched_total"`
+	Overview         *CatalogOverview   `json:"overview,omitempty"`
+	AvailableMarkets []string           `json:"available_markets"`
+	SortScope        string             `json:"sort_scope,omitempty"`
 }
 
 type BreadcrumbItem struct {
@@ -164,17 +196,27 @@ type PeriodChanges struct {
 	Year1Pct  *float64 `json:"year_1_pct"`
 }
 
+type RangeAvailabilityItem struct {
+	Range        string  `json:"range"`
+	Available    bool    `json:"available"`
+	EarliestDate *string `json:"earliest_date,omitempty"`
+	Reason       string  `json:"reason,omitempty"`
+}
+
 type AssetDetailResponse struct {
-	Snapshot            SnapshotMeta     `json:"snapshot"`
-	Asset               AssetSummaryItem `json:"asset"`
-	Breadcrumbs         []BreadcrumbItem `json:"breadcrumbs"`
-	AvailableCharts     []string         `json:"available_charts"`
-	AvailableRanges     []string         `json:"available_ranges"`
-	AvailableCurrencies []string         `json:"available_currencies"`
-	BenchmarkID         *string          `json:"benchmark_id"`
-	BenchmarkName       *string          `json:"benchmark_name"`
-	PeriodChanges       PeriodChanges    `json:"period_changes"`
-	RecentEvents        []TrendEventItem `json:"recent_events"`
+	Snapshot            SnapshotMeta            `json:"snapshot"`
+	Asset               AssetSummaryItem        `json:"asset"`
+	Breadcrumbs         []BreadcrumbItem        `json:"breadcrumbs"`
+	AvailableCharts     []string                `json:"available_charts"`
+	AvailableRanges     []string                `json:"available_ranges"`
+	RangeAvailability   []RangeAvailabilityItem `json:"range_availability,omitempty"`
+	EarliestDate        *string                 `json:"earliest_date,omitempty"`
+	AvailableCurrencies []string                `json:"available_currencies"`
+	CurrencyNotes       []string                `json:"currency_notes,omitempty"`
+	BenchmarkID         *string                 `json:"benchmark_id"`
+	BenchmarkName       *string                 `json:"benchmark_name"`
+	PeriodChanges       PeriodChanges           `json:"period_changes"`
+	RecentEvents        []TrendEventItem        `json:"recent_events"`
 }
 
 type SeriesPoint struct {
@@ -206,18 +248,22 @@ type StateInterval struct {
 }
 
 type TrendCurveResponse struct {
-	Snapshot        SnapshotMeta     `json:"snapshot"`
-	AssetID         string           `json:"asset_id"`
-	AssetName       string           `json:"asset_name"`
-	BenchmarkID     *string          `json:"benchmark_id"`
-	BenchmarkName   *string          `json:"benchmark_name"`
-	Range           string           `json:"range"`
-	Freq            string           `json:"freq"`
-	Points          []SeriesPoint    `json:"points"`
-	BenchmarkPoints []SeriesPoint    `json:"benchmark_points"`
-	Extremum        ExtremumInfo     `json:"extremum"`
-	StateIntervals  []StateInterval  `json:"state_intervals"`
-	Events          []TrendEventItem `json:"events"`
+	Snapshot          SnapshotMeta     `json:"snapshot"`
+	AssetID           string           `json:"asset_id"`
+	AssetName         string           `json:"asset_name"`
+	RequestedCurrency string           `json:"requested_currency,omitempty"`
+	EffectiveCurrency string           `json:"effective_currency,omitempty"`
+	FXApplied         bool             `json:"fx_applied,omitempty"`
+	FXPair            string           `json:"fx_pair,omitempty"`
+	BenchmarkID       *string          `json:"benchmark_id"`
+	BenchmarkName     *string          `json:"benchmark_name"`
+	Range             string           `json:"range"`
+	Freq              string           `json:"freq"`
+	Points            []SeriesPoint    `json:"points"`
+	BenchmarkPoints   []SeriesPoint    `json:"benchmark_points"`
+	Extremum          ExtremumInfo     `json:"extremum"`
+	StateIntervals    []StateInterval  `json:"state_intervals"`
+	Events            []TrendEventItem `json:"events"`
 }
 
 type AnnualWeekPoint struct {
@@ -429,4 +475,61 @@ type MethodologyResponse struct {
 	TemperatureThresholds []TemperatureThresholdItem `json:"temperature_thresholds"`
 	TierRules             []TierRuleItem             `json:"tier_rules"`
 	Disclaimers           []string                   `json:"disclaimers"`
+}
+
+type MatrixColumnDef struct {
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	PeriodType string `json:"period_type"`
+	Sortable   bool   `json:"sortable"`
+}
+
+type MatrixCell struct {
+	PeriodKey     string   `json:"period_key"`
+	StartDate     *string  `json:"start_date"`
+	EndDate       *string  `json:"end_date"`
+	StartValue    *float64 `json:"start_value"`
+	EndValue      *float64 `json:"end_value"`
+	ReturnPct     *float64 `json:"return_pct"`
+	BpChange      *float64 `json:"bp_change,omitempty"`
+	DisplayUnit   string   `json:"display_unit"`
+	ReturnType    string   `json:"return_type"`
+	Currency      string   `json:"currency"`
+	FXApplied     bool     `json:"fx_applied,omitempty"`
+	FXPair        string   `json:"fx_pair,omitempty"`
+	StartFX       *float64 `json:"start_fx,omitempty"`
+	EndFX         *float64 `json:"end_fx,omitempty"`
+	QualityStatus string   `json:"quality_status"`
+	SourceName    string   `json:"source_name"`
+	Reason        string   `json:"reason,omitempty"`
+}
+
+type MatrixRow struct {
+	Asset AssetSummaryItem      `json:"asset"`
+	Cells map[string]MatrixCell `json:"cells"`
+}
+
+type MatrixGroup struct {
+	GroupName string      `json:"group_name"`
+	Rows      []MatrixRow `json:"rows"`
+}
+
+type PeriodMatrixResponse struct {
+	Snapshot         SnapshotMeta      `json:"snapshot"`
+	PoolID           string            `json:"pool_id"`
+	PoolName         string            `json:"pool_name"`
+	Currency         string            `json:"currency"`
+	CutoffDate       string            `json:"cutoff_date"`
+	Columns          []MatrixColumnDef `json:"columns"`
+	Groups           []MatrixGroup     `json:"groups"`
+	NextCursor       *string           `json:"next_cursor"`
+	Total            int               `json:"total"`
+	PoolTotal        int               `json:"pool_total"`
+	ValidCount       int               `json:"valid_count"`
+	MatchedTotal     int               `json:"matched_total"`
+	Overview         *CatalogOverview  `json:"overview,omitempty"`
+	AvailableMarkets []string          `json:"available_markets"`
+	SortScope        string            `json:"sort_scope"`
+	SortField        string            `json:"sort_field"`
+	SortOrder        string            `json:"sort_order"`
 }

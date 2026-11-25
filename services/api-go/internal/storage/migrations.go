@@ -201,6 +201,53 @@ CREATE TABLE IF NOT EXISTS data_sync_jobs (
 );
 `,
 	},
+	{
+		version: 2,
+		name:    "separate_signal_index_and_etf_positions",
+		sql: `
+ALTER TABLE positions ADD COLUMN signal_symbol TEXT NOT NULL DEFAULT '';
+ALTER TABLE positions ADD COLUMN last_price REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE positions ADD COLUMN last_price_date TEXT NOT NULL DEFAULT '';
+ALTER TABLE positions ADD COLUMN last_price_source TEXT NOT NULL DEFAULT '';
+
+UPDATE positions
+SET symbol = '515100', signal_symbol = '930955', name = '红利低波100ETF(515100)'
+WHERE symbol = '930955';
+
+UPDATE positions
+SET symbol = '159949', signal_symbol = '399673', name = '创业板50ETF(159949)'
+WHERE symbol = '399673';
+`,
+	},
+	{
+		version: 3,
+		name:    "add_trend_snapshot_frozen_bars",
+		sql: `
+CREATE TABLE IF NOT EXISTS trend_snapshot_frozen_bars (
+	snapshot_id TEXT NOT NULL,
+	asset_id TEXT NOT NULL,
+	trading_date TEXT NOT NULL,
+	provider TEXT NOT NULL DEFAULT '',
+	revision INTEGER NOT NULL DEFAULT 0,
+	open REAL,
+	high REAL,
+	low REAL,
+	close REAL,
+	adjusted_close REAL,
+	total_return_index REAL,
+	volume REAL,
+	turnover REAL,
+	dividend_yield REAL,
+	yield_pct REAL,
+	quality_status TEXT NOT NULL DEFAULT 'ok',
+	as_of TEXT NOT NULL DEFAULT '',
+	available_at TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(snapshot_id, asset_id, trading_date)
+);
+CREATE INDEX IF NOT EXISTS idx_frozen_bars_snap_asset ON trend_snapshot_frozen_bars(snapshot_id, asset_id, trading_date);
+`,
+	},
 }
 
 func (s *SQLiteStore) runMigrations() error {

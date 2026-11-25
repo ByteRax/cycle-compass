@@ -50,7 +50,7 @@ func NewOnlineProvider(fallback *SeedProvider) *OnlineProvider {
 }
 
 func symbolToTencentCode(symbol string) string {
-	switch symbol {
+	switch strings.ToUpper(strings.TrimSpace(symbol)) {
 	case "930955":
 		return "csi930955"
 	case "399673":
@@ -61,13 +61,17 @@ func symbolToTencentCode(symbol string) string {
 		return "sh000905"
 	case "000688":
 		return "sh000688"
+	case "515100":
+		return "sh515100"
+	case "159949":
+		return "sz159949"
 	default:
 		return ""
 	}
 }
 
 func tencentCodeToSymbol(code string) string {
-	switch strings.ToLower(code) {
+	switch strings.ToLower(strings.TrimSpace(code)) {
 	case "csi930955":
 		return "930955"
 	case "sz399673":
@@ -78,6 +82,10 @@ func tencentCodeToSymbol(code string) string {
 		return "000905"
 	case "sh000688":
 		return "000688"
+	case "sh515100":
+		return "515100"
+	case "sz159949":
+		return "159949"
 	default:
 		return ""
 	}
@@ -125,6 +133,12 @@ func (p *OnlineProvider) parseTencentLine(line string, latencyMs float64) *dto.M
 	}
 
 	asOf := time.Now().Format("2006-01-02")
+	if len(fields) > 30 && len(fields[30]) >= 8 {
+		rawTS := strings.TrimSpace(fields[30])
+		if tParsed, err := time.Parse("20060102", rawTS[:8]); err == nil {
+			asOf = tParsed.Format("2006-01-02")
+		}
+	}
 	roundedLat := math.Round(latencyMs*10) / 10
 	return &dto.MarketQuote{
 		Symbol:    symbol,

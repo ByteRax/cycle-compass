@@ -11,5 +11,7 @@ type IndustryMetric struct {
 	Unit            string         `json:"unit"`
 	Catalyst        string         `json:"catalyst"`
 	AsOf            string         `json:"as_of"`
+	DataDate        string         `json:"data_date"`
+	IsReference     bool           `json:"is_reference"`
 	Meta            DataSourceMeta `json:"meta"`
 }

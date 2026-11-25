@@ -19,12 +19,20 @@ var (
 		"strength_score":        true,
 		"strength":              true,
 		"day_change_pct":        true,
+		"change":                true,
 		"duration_trading_days": true,
+		"duration":              true,
 		"days":                  true,
 		"latest_value":          true,
 		"turnover":              true,
 		"name":                  true,
 		"asset_id":              true,
+		"wtd":                   true,
+		"mtd":                   true,
+		"qtd":                   true,
+		"ytd":                   true,
+		"prev_year":             true,
+		"rolling_1m":            true,
 	}
 	allowedOrders = map[string]bool{
 		"":     true,
@@ -82,11 +90,18 @@ func parseLimitParam(r *http.Request, defaultVal int) (int, bool) {
 }
 
 func handleServiceErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, service.ErrNotFound) {
+	switch {
+	case errors.Is(err, service.ErrNotFound):
 		writeFail(w, http.StatusNotFound, 404, "未找到对应的资产或观察池")
-		return
+	case errors.Is(err, service.ErrSnapshotExpired):
+		writeFail(w, http.StatusGone, 410, "请求的快照已过期或不存在，请刷新获取最新快照")
+	case errors.Is(err, service.ErrStaleCursor):
+		writeFail(w, http.StatusConflict, 409, "数据快照已更新，请刷新列表后重试")
+	case errors.Is(err, service.ErrBadRequest):
+		writeFail(w, http.StatusBadRequest, 400, err.Error())
+	default:
+		writeFail(w, http.StatusInternalServerError, 500, err.Error())
 	}
-	writeFail(w, http.StatusInternalServerError, 500, err.Error())
 }
 
 func (h *TrendHandler) GetCatalog(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +121,10 @@ func (h *TrendHandler) GetUniverses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeSuccess(w, resp)
+}
+
+func (h *TrendHandler) GetEnums(w http.ResponseWriter, r *http.Request) {
+	writeSuccess(w, h.svc.GetEnums())
 }
 
 func (h *TrendHandler) SearchAssets(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +179,20 @@ func (h *TrendHandler) GetAssetMembers(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, 400, "limit 必须为 1 到 200 之间的整数")
 		return
 	}
-	resp, err := h.svc.GetAssetMembers(r.Context(), id, q.Get("scope_id"), sortField, order, q.Get("cursor"), limit, q.Get("currency"))
+	resp, err := h.svc.GetAssetMembers(r.Context(), service.MembersQuery{
+		PoolID:          id,
+		ScopeID:         q.Get("scope_id"),
+		SortField:       sortField,
+		Order:           order,
+		Cursor:          q.Get("cursor"),
+		Limit:           limit,
+		Currency:        q.Get("currency"),
+		SnapshotID:      q.Get("snapshot_id"),
+		MarketFilter:    q.Get("market"),
+		AssetTypeFilter: q.Get("asset_type"),
+		StatusFilter:    q.Get("status"),
+		QueryFilter:     q.Get("q"),
+	})
 	if err != nil {
 		handleServiceErr(w, err)
 		return
@@ -186,7 +218,7 @@ func (h *TrendHandler) GetTrendCurve(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, 400, "不支持的 range 区间参数")
 		return
 	}
-	resp, err := h.svc.GetTrendCurve(r.Context(), id, rangeStr, q.Get("freq"), q.Get("currency"), q.Get("benchmark_id"), q.Get("snapshot_id"))
+	resp, err := h.svc.GetTrendCurve(r.Context(), id, rangeStr, q.Get("freq"), q.Get("currency"), q.Get("benchmark_id"), q.Get("snapshot_id"), q.Get("start_date"), q.Get("end_date"))
 	if err != nil {
 		handleServiceErr(w, err)
 		return
@@ -331,6 +363,49 @@ func (h *TrendHandler) GetMethodology(w http.ResponseWriter, r *http.Request) {
 
 func (h *TrendHandler) GetDataStatus(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.svc.GetDataStatus(r.Context())
+	if err != nil {
+		handleServiceErr(w, err)
+		return
+	}
+	writeSuccess(w, resp)
+}
+
+func (h *TrendHandler) GetPeriodMatrix(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeFail(w, http.StatusBadRequest, 400, "缺少观察池或分类 ID")
+		return
+	}
+	q := r.URL.Query()
+	sortField := q.Get("sort")
+	if !allowedSortFields[sortField] {
+		writeFail(w, http.StatusBadRequest, 400, "不支持的 sort 排序字段")
+		return
+	}
+	order := strings.ToLower(q.Get("order"))
+	if !allowedOrders[order] {
+		writeFail(w, http.StatusBadRequest, 400, "order 仅支持 asc 或 desc")
+		return
+	}
+	limit, ok := parseLimitParam(r, 50)
+	if !ok {
+		writeFail(w, http.StatusBadRequest, 400, "limit 必须为 1 到 200 之间的整数")
+		return
+	}
+	resp, err := h.svc.GetPeriodMatrix(r.Context(), service.PeriodMatrixQuery{
+		PoolID:          id,
+		ScopeID:         q.Get("scope_id"),
+		SnapshotID:      q.Get("snapshot_id"),
+		Currency:        q.Get("currency"),
+		SortField:       sortField,
+		Order:           order,
+		Cursor:          q.Get("cursor"),
+		Limit:           limit,
+		MarketFilter:    q.Get("market"),
+		AssetTypeFilter: q.Get("asset_type"),
+		StatusFilter:    q.Get("status"),
+		QueryFilter:     q.Get("q"),
+	})
 	if err != nil {
 		handleServiceErr(w, err)
 		return

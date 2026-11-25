@@ -27,6 +27,7 @@ const emit = defineEmits<{
 
 const financeStore = useFinanceStore()
 const isDark = computed(() => financeStore.isDarkEffective)
+const isCompact = computed(() => financeStore.density === 'compact')
 const isFav = computed(() => financeStore.isAssetFavorite(props.item.asset_id))
 
 const assetTypeLabels: Record<AssetSummaryItem['asset_type'], string> = {
@@ -143,8 +144,11 @@ const sublineText = computed(() => {
 
 <template>
   <view
-    class="flex items-center gap-1.5 px-3 py-2.5 min-h-[56px] border-b transition-opacity active:opacity-80"
-    :class="isDark ? 'border-[#29313A]/80 bg-[#12161B]' : 'border-[#DCDDD8] bg-[#FFFFFF]'"
+    class="flex items-center gap-1.5 px-3 border-b transition-opacity active:opacity-80"
+    :class="[
+      isCompact ? 'py-2 min-h-[50px]' : 'py-3 min-h-[64px]',
+      isDark ? 'border-[#29313A]/80 bg-[#12161B]' : 'border-[#DCDDD8] bg-[#FFFFFF]'
+    ]"
     @tap="emit('select', item)"
   >
     <!-- 1. 温度 + 天数 -->

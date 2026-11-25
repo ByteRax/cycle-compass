@@ -509,35 +509,92 @@ function updateCrosshairFromClientX(clientX: number) {
   }
 }
 
-function extractClientX(e: any): number | null {
+function extractTouchPoint(e: any): { x: number | null, y: number | null } {
   const touch = e?.touches?.[0] || e?.changedTouches?.[0]
-  if (touch && typeof touch.clientX === 'number')
-    return touch.clientX
-  if (touch && typeof touch.x === 'number')
-    return canvasRect.value.left + touch.x
-  if (typeof e?.detail?.x === 'number')
-    return e.detail.x
-  if (typeof e?.clientX === 'number')
-    return e.clientX
-  return null
+  if (touch) {
+    const x = typeof touch.clientX === 'number'
+      ? touch.clientX
+      : (typeof touch.x === 'number'
+? canvasRect.value.left + touch.x
+: null)
+    const y = typeof touch.clientY === 'number'
+      ? touch.clientY
+      : (typeof touch.y === 'number'
+? canvasRect.value.top + touch.y
+: null)
+    return { x, y }
+  }
+  const dx = typeof e?.detail?.x === 'number'
+? e.detail.x
+: (typeof e?.clientX === 'number'
+? e.clientX
+: null)
+  const dy = typeof e?.detail?.y === 'number'
+? e.detail.y
+: (typeof e?.clientY === 'number'
+? e.clientY
+: null)
+  return { x: dx, y: dy }
+}
+
+const touchStartPoint = ref<{ x: number, y: number } | null>(null)
+const gestureAxis = ref<'none' | 'horizontal' | 'vertical'>('none')
+
+function clearCrosshair() {
+  if (activeIndex.value !== null) {
+    activeIndex.value = null
+    emit('crosshairChange', { index: null, date: '', items: [] })
+    scheduleDraw()
+  }
 }
 
 function handleTouchStart(e: any) {
-  const cx = extractClientX(e)
-  if (cx !== null)
-    updateCrosshairFromClientX(cx)
+  const pt = extractTouchPoint(e)
+  touchStartPoint.value = pt.x !== null && pt.y !== null
+? { x: pt.x, y: pt.y }
+: null
+  gestureAxis.value = 'none'
+}
+
+function handleLongPress(e: any) {
+  gestureAxis.value = 'horizontal'
+  const pt = extractTouchPoint(e)
+  if (pt.x !== null)
+    updateCrosshairFromClientX(pt.x)
 }
 
 function handleTouchMove(e: any) {
-  const cx = extractClientX(e)
-  if (cx !== null)
-    updateCrosshairFromClientX(cx)
+  const pt = extractTouchPoint(e)
+  if (pt.x === null)
+    return
+
+  if (gestureAxis.value === 'vertical')
+    return
+
+  if (gestureAxis.value === 'none' && touchStartPoint.value && pt.y !== null) {
+    const dx = Math.abs(pt.x - touchStartPoint.value.x)
+    const dy = Math.abs(pt.y - touchStartPoint.value.y)
+    if (Math.max(dx, dy) < 6)
+      return
+    if (dy > dx * 1.1) {
+      gestureAxis.value = 'vertical'
+      clearCrosshair()
+      return
+    }
+    gestureAxis.value = 'horizontal'
+  }
+
+  if (gestureAxis.value === 'horizontal') {
+    e?.preventDefault?.()
+    e?.stopPropagation?.()
+    updateCrosshairFromClientX(pt.x)
+  }
 }
 
 function handleTouchEnd() {
-  activeIndex.value = null
-  emit('crosshairChange', { index: null, date: '', items: [] })
-  scheduleDraw()
+  touchStartPoint.value = null
+  gestureAxis.value = 'none'
+  clearCrosshair()
 }
 
 onMounted(() => {
@@ -592,12 +649,12 @@ isDark.value
         :canvas-id="canvasId"
         type="2d"
         class="w-full h-full block"
-        :style="{ width: '100%', height: `${height}px` }"
-        @touchstart.stop="handleTouchStart"
-        @touchmove.stop.prevent="handleTouchMove"
-        @longpress.stop="handleTouchStart"
-        @touchend.stop="handleTouchEnd"
-        @touchcancel.stop="handleTouchEnd"
+        :style="{ width: '100%', height: `${height}px`, touchAction: 'pan-y' }"
+        @touchstart="handleTouchStart"
+        @touchmove="handleTouchMove"
+        @longpress="handleLongPress"
+        @touchend="handleTouchEnd"
+        @touchcancel="handleTouchEnd"
       />
     </view>
   </view>

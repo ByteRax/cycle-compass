@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"cyclecompass/api/internal/dto"
@@ -18,7 +19,12 @@ import (
 	"cyclecompass/api/internal/trend"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound        = errors.New("not found")
+	ErrSnapshotExpired = errors.New("snapshot expired or not found")
+	ErrStaleCursor     = errors.New("stale cursor")
+	ErrBadRequest      = errors.New("bad request")
+)
 
 const (
 	defaultScopeID    = "all"
@@ -44,8 +50,10 @@ var seriesColors = []string{
 
 // TrendService 提供 V4 趋势发现、快照计算与多维分析查询服务。
 type TrendService struct {
-	store *storage.SQLiteStore
-	hist  *market.HistoricalProvider
+	store             *storage.SQLiteStore
+	hist              *market.HistoricalProvider
+	refreshMu         sync.Mutex
+	lastOnlineRefresh time.Time
 }
 
 // NewTrendService 构造 TrendService。
@@ -62,9 +70,44 @@ type snapshotMetaExtra struct {
 	Warnings    []string             `json:"warnings"`
 }
 
+// StartPostCloseScheduler 启动可重入的盘后快照刷新调度器：带互斥锁并在刷新失败或无新数据时保留当前有效快照。
+func (s *TrendService) StartPostCloseScheduler(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 15 * time.Minute
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				cst := now.In(time.FixedZone("CST", 8*3600))
+				wd := cst.Weekday()
+				if wd == time.Saturday || wd == time.Sunday {
+					continue
+				}
+				hhmm := cst.Hour()*100 + cst.Minute()
+				// 仅在工作日盘后阶段 (15:10+) 尝试刷新快照，且两次在线刷新至少间隔 10 分钟
+				if hhmm >= 1510 && time.Since(s.lastOnlineRefresh) >= 10*time.Minute {
+					rCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+					_ = s.BootstrapAndComputeSnapshot(rCtx, true)
+					cancel()
+				}
+			}
+		}
+	}()
+}
+
 // BootstrapAndComputeSnapshot 同步目录、拉取/读取真实日线并原子发布不可变趋势快照。
 // 当 fetchOnline=false 时不发起在线请求，仅使用本地 SQLite 中已有日线（无数据时诚实标记 insufficient）。
 func (s *TrendService) BootstrapAndComputeSnapshot(ctx context.Context, fetchOnline bool) error {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	if fetchOnline {
+		s.lastOnlineRefresh = time.Now()
+	}
 	nowRFC3339 := time.Now().UTC().Format(time.RFC3339)
 
 	// 1. 同步分类
@@ -483,7 +526,14 @@ func (s *TrendService) BootstrapAndComputeSnapshot(ctx context.Context, fetchOnl
 		MetaJSON:         string(metaBytes),
 	}
 
-	if err := s.store.PublishTrendSnapshot(snapshot, metricsSlice, allRankings, allEvents); err != nil {
+	// 若在线拉取全部失败且没有任何有效更新（validCount == 0），保留已有的健康快照不盲目覆盖
+	if fetchOnline && validCount == 0 {
+		if existing, err := s.store.GetCurrentSnapshot(defaultScopeID, defaultCurrency, defaultMode); err == nil && existing != nil && existing.ValidCount > 0 {
+			return nil
+		}
+	}
+
+	if err := s.store.PublishTrendSnapshotWithFrozen(snapshot, metricsSlice, allRankings, allEvents, barsByAsset); err != nil {
 		return fmt.Errorf("publish snapshot: %w", err)
 	}
 	return nil
@@ -529,30 +579,18 @@ func (s *TrendService) GetCatalog(ctx context.Context, scopeID, currency string)
 
 	overview := dto.CatalogOverview{}
 	if snap != nil {
-		metrics, err := s.store.ListTrendDailyMetrics(snap.SnapshotID, nil)
-		if err == nil {
-			overview.TotalCount = len(metrics)
-			for _, m := range metrics {
-				switch m.Side {
-				case string(trend.SideRight):
-					overview.RightCount++
-					overview.ValidCount++
-				case string(trend.SideLeft):
-					overview.LeftCount++
-					overview.ValidCount++
-				case string(trend.SideNeutral):
-					overview.OtherCount++
-					overview.ValidCount++
+		var targetAssetIDs []string
+		if scopeID != "" && scopeID != defaultScopeID {
+			if _, _, members, mErr := s.resolvePoolMembers(scopeID); mErr == nil && len(members) > 0 {
+				targetAssetIDs = make([]string, len(members))
+				for i, m := range members {
+					targetAssetIDs[i] = m.AssetID
 				}
 			}
-			if overview.ValidCount > 0 {
-				rr := round2(float64(overview.RightCount) * 100 / float64(overview.ValidCount))
-				lr := round2(float64(overview.LeftCount) * 100 / float64(overview.ValidCount))
-				or := round2(float64(overview.OtherCount) * 100 / float64(overview.ValidCount))
-				overview.RightRatioPct = &rr
-				overview.LeftRatioPct = &lr
-				overview.OtherRatioPct = &or
-			}
+		}
+		metrics, err := s.store.ListTrendDailyMetrics(snap.SnapshotID, targetAssetIDs)
+		if err == nil {
+			overview = computeOverviewFromMetrics(metrics)
 		}
 	}
 
@@ -590,9 +628,98 @@ func (s *TrendService) GetUniverses(ctx context.Context) (*dto.UniversesResponse
 	}, nil
 }
 
-// SearchAssets 按关键词、资产类型检索标准化资产目录。
+// GetEnums 返回前后端共用的搜索、筛选、排序与币种枚举。
+func (s *TrendService) GetEnums() dto.AssetEnumsResponse {
+	return dto.AssetEnumsResponse{
+		SearchTypes: []dto.EnumOption{
+			{Key: "all", Label: "全部"},
+			{Key: "universe", Label: "观察池"},
+			{Key: "category", Label: "行业专题"},
+			{Key: "etf", Label: "ETF"},
+			{Key: "single", Label: "单品种"},
+		},
+		AssetTypes: []dto.EnumOption{
+			{Key: "all", Label: "全部"},
+			{Key: "stock", Label: "股票"},
+			{Key: "etf", Label: "ETF"},
+			{Key: "index", Label: "指数"},
+			{Key: "bond", Label: "债券"},
+			{Key: "future", Label: "期货"},
+			{Key: "fx", Label: "外汇"},
+		},
+		SortFields: []dto.EnumOption{
+			{Key: "strength", Label: "强度"},
+			{Key: "day_change_pct", Label: "日涨幅"},
+			{Key: "turnover", Label: "成交额"},
+			{Key: "duration_trading_days", Label: "持续天数"},
+		},
+		DashboardSorts: []dto.EnumOption{
+			{Key: "strength", Label: "相对强度"},
+			{Key: "change", Label: "区间涨跌"},
+			{Key: "turnover", Label: "成交额"},
+			{Key: "duration_trading_days", Label: "持续天数"},
+		},
+		MatrixSorts: []dto.EnumOption{
+			{Key: "ytd", Label: "今年来"},
+			{Key: "rolling_1m", Label: "近1月"},
+			{Key: "wtd", Label: "本周"},
+			{Key: "mtd", Label: "本月"},
+			{Key: "qtd", Label: "本季"},
+			{Key: "prev_year", Label: "去年全年"},
+		},
+		Currencies: []dto.EnumOption{
+			{Key: "CNY", Label: "CNY · 人民币"},
+			{Key: "USD", Label: "USD · 美元"},
+			{Key: "HKD", Label: "HKD · 港元"},
+			{Key: "ORIGINAL", Label: "RAW · 原币种"},
+		},
+		Statuses: []dto.EnumOption{
+			{Key: "all", Label: "全部状态"},
+			{Key: "right", Label: "右侧确认"},
+			{Key: "left", Label: "下行确认"},
+			{Key: "forming", Label: "形成中"},
+		},
+	}
+}
+
+func expandTypeFilterTokens(rawType string) (wantUniverse, wantCategory, wantAllAssets bool, assetTypes map[string]bool) {
+	trimmed := strings.ToLower(strings.TrimSpace(rawType))
+	if trimmed == "" || trimmed == "all" {
+		return true, true, true, nil
+	}
+	assetTypes = make(map[string]bool)
+	for _, tok := range strings.Split(trimmed, ",") {
+		t := strings.TrimSpace(tok)
+		if t == "" {
+			continue
+		}
+		switch t {
+		case "all":
+			return true, true, true, nil
+		case "universe":
+			wantUniverse = true
+		case "category":
+			wantCategory = true
+		case "single":
+			for _, st := range []string{"stock", "index", "future", "futures", "bond", "bond_yield", "fx"} {
+				assetTypes[st] = true
+			}
+		case "future", "futures":
+			assetTypes["future"] = true
+			assetTypes["futures"] = true
+		case "bond", "bond_yield":
+			assetTypes["bond"] = true
+			assetTypes["bond_yield"] = true
+		default:
+			assetTypes[t] = true
+		}
+	}
+	return wantUniverse, wantCategory, len(assetTypes) == 0 && !wantUniverse && !wantCategory, assetTypes
+}
+
+// SearchAssets 按关键词与多对象类型检索标准化资产、行业专题与观察池。
 func (s *TrendService) SearchAssets(ctx context.Context, q, assetType, cursor string, limit int) (*dto.SearchAssetsResponse, error) {
-	snap, _, err := s.resolveSnapshot("", defaultScopeID, defaultCurrency, defaultMode)
+	snap, meta, err := s.resolveSnapshot("", defaultScopeID, defaultCurrency, defaultMode)
 	if err != nil {
 		return nil, err
 	}
@@ -602,35 +729,164 @@ func (s *TrendService) SearchAssets(ctx context.Context, q, assetType, cursor st
 	}
 
 	qLower := strings.ToLower(strings.TrimSpace(q))
-	typeLower := strings.ToLower(strings.TrimSpace(assetType))
+	wantUniverse, wantCategory, wantAllAssets, allowedAssetTypes := expandTypeFilterTokens(assetType)
 
-	var matched []storage.AssetEntity
-	for _, a := range assets {
-		if typeLower != "" && strings.ToLower(a.AssetType) != typeLower {
-			continue
-		}
-		if qLower != "" {
-			hit := strings.Contains(strings.ToLower(a.AssetID), qLower) ||
-				strings.Contains(strings.ToLower(a.Symbol), qLower) ||
-				strings.Contains(strings.ToLower(a.Name), qLower)
-			if !hit {
-				if catAsset, ok := market.GetCatalogAsset(a.AssetID); ok {
-					for _, alias := range catAsset.Aliases {
-						if strings.Contains(strings.ToLower(alias), qLower) {
-							hit = true
-							break
-						}
-					}
-				}
-			}
+	var combined []dto.AssetSummaryItem
+	var uncoveredNames []string
+
+	// 1. 检索大类观察池 (universes)
+	if wantUniverse {
+		universes, _ := s.store.ListUniverses(true)
+		for _, u := range universes {
+			hit := qLower == "" ||
+				strings.Contains(strings.ToLower(u.UniverseID), qLower) ||
+				strings.Contains(strings.ToLower(u.Name), qLower) ||
+				strings.Contains(strings.ToLower(u.Description), qLower)
 			if !hit {
 				continue
 			}
+			members, _ := s.store.ListUniverseMembers(u.UniverseID)
+			item := dto.AssetSummaryItem{
+				AssetID:       u.UniverseID,
+				Market:        "POOL",
+				Symbol:        u.UniverseID,
+				Name:          u.Name,
+				ShortName:     u.Name,
+				AssetType:     "universe",
+				ObjectType:    "universe",
+				RouteTarget:   "pool_overview",
+				MeasureType:   "index",
+				AsOf:          strOrNil(meta.AsOf),
+				ScaleLabel:    fmt.Sprintf("%d个成分", len(members)),
+				HasMembers:    true,
+				MemberCount:   len(members),
+				LicenseStatus: "public",
+				QualityStatus: meta.Status,
+				Metrics:       emptyMetrics(),
+				FeatureTags:   []string{"观察池"},
+			}
+			combined = append(combined, item)
 		}
-		matched = append(matched, a)
 	}
 
-	total := len(matched)
+	// 2. 检索行业与分类专题 (categories + 24产业链专题，按对象标识路由，无资产映射亦展指标说明)
+	if wantCategory {
+		cats, _ := s.store.ListAssetCategories()
+		seenCatNames := make(map[string]bool)
+		for _, c := range cats {
+			seenCatNames[c.Name] = true
+			hit := qLower == "" ||
+				strings.Contains(strings.ToLower(c.CategoryID), qLower) ||
+				strings.Contains(strings.ToLower(c.Name), qLower)
+			if !hit {
+				continue
+			}
+			members := market.GetCatalogAssetsByCategory(c.CategoryID)
+			combined = append(combined, dto.AssetSummaryItem{
+				AssetID:       c.CategoryID,
+				Market:        "CN",
+				Symbol:        c.CategoryID,
+				Name:          c.Name,
+				ShortName:     c.Name,
+				AssetType:     "category",
+				ObjectType:    "category",
+				RouteTarget:   "sector_detail",
+				MeasureType:   "index",
+				AsOf:          strOrNil(meta.AsOf),
+				ScaleLabel:    fmt.Sprintf("%d个关联标的", len(members)),
+				HasMembers:    len(members) > 0,
+				MemberCount:   len(members),
+				LicenseStatus: "public",
+				QualityStatus: meta.Status,
+				Metrics:       emptyMetrics(),
+				FeatureTags:   []string{"行业专题"},
+			})
+		}
+		for _, sec := range market.ListIndustryBriefs() {
+			if seenCatNames[sec.Name] {
+				continue
+			}
+			hit := qLower == "" ||
+				strings.Contains(strings.ToLower(sec.SectorID), qLower) ||
+				strings.Contains(strings.ToLower(sec.Name), qLower) ||
+				strings.Contains(strings.ToLower(sec.Catalyst), qLower)
+			if !hit {
+				continue
+			}
+			lv := sec.PriceIndex
+			chg := sec.PriceChangePct
+			combined = append(combined, dto.AssetSummaryItem{
+				AssetID:       "sector:" + sec.SectorID,
+				Market:        "INDUSTRY",
+				Symbol:        sec.SectorID,
+				Name:          sec.Name,
+				ShortName:     sec.Name,
+				AssetType:     "category",
+				ObjectType:    "category",
+				RouteTarget:   "sector_detail",
+				MeasureType:   "index",
+				Unit:          sec.Unit,
+				AsOf:          strOrNil(sec.DataDate),
+				LatestValue:   &lv,
+				DayChangePct:  &chg,
+				ScaleLabel:    sec.Stage,
+				HasMembers:    false,
+				MemberCount:   0,
+				LicenseStatus: "public",
+				QualityStatus: "offline_seed",
+				Metrics:       emptyMetrics(),
+				FeatureTags:   []string{"产业主线", sec.Stage},
+			})
+		}
+	}
+
+	// 3. 检索标准资产（支持多类型及别名，并统计未授权/未覆盖命中项）
+	if wantAllAssets || len(allowedAssetTypes) > 0 {
+		var matchedAssets []storage.AssetEntity
+		for _, a := range assets {
+			if !wantAllAssets {
+				aType := strings.ToLower(strings.TrimSpace(a.AssetType))
+				if !allowedAssetTypes[aType] {
+					continue
+				}
+			}
+			if qLower != "" {
+				hit := strings.Contains(strings.ToLower(a.AssetID), qLower) ||
+					strings.Contains(strings.ToLower(a.Symbol), qLower) ||
+					strings.Contains(strings.ToLower(a.Name), qLower)
+				if !hit {
+					if catAsset, ok := market.GetCatalogAsset(a.AssetID); ok {
+						for _, alias := range catAsset.Aliases {
+							if strings.Contains(strings.ToLower(alias), qLower) {
+								hit = true
+								break
+							}
+						}
+					}
+				}
+				if !hit {
+					continue
+				}
+			}
+			if a.LicenseStatus == string(market.LicenseNotCovered) {
+				uncoveredNames = append(uncoveredNames, a.Name)
+			}
+			matchedAssets = append(matchedAssets, a)
+		}
+		if len(matchedAssets) > 0 {
+			assetSummaries, err := s.buildAssetSummaries(snap, defaultScopeID, matchedAssets)
+			if err != nil {
+				return nil, err
+			}
+			for i := range assetSummaries {
+				assetSummaries[i].ObjectType = "asset"
+				assetSummaries[i].RouteTarget = "asset_detail"
+			}
+			combined = append(combined, assetSummaries...)
+		}
+	}
+
+	total := len(combined)
 	offset := parseCursor(cursor)
 	if limit <= 0 {
 		limit = defaultLimit
@@ -643,10 +899,11 @@ func (s *TrendService) SearchAssets(ctx context.Context, q, assetType, cursor st
 		end = total
 	}
 
-	page := matched[offset:end]
-	items, err := s.buildAssetSummaries(snap, defaultScopeID, page)
-	if err != nil {
-		return nil, err
+	var pageItems []dto.AssetSummaryItem
+	if offset < end {
+		pageItems = combined[offset:end]
+	} else {
+		pageItems = []dto.AssetSummaryItem{}
 	}
 
 	var nextCursor *string
@@ -656,9 +913,11 @@ func (s *TrendService) SearchAssets(ctx context.Context, q, assetType, cursor st
 	}
 
 	return &dto.SearchAssetsResponse{
-		Items:      items,
-		NextCursor: nextCursor,
-		Total:      total,
+		Items:          pageItems,
+		NextCursor:     nextCursor,
+		Total:          total,
+		UncoveredCount: len(uncoveredNames),
+		UncoveredNames: uncoveredNames,
 	}, nil
 }
 
@@ -703,7 +962,7 @@ func (s *TrendService) GetAssetDetail(ctx context.Context, id, scopeID, currency
 		}
 		breadcrumbs = append(breadcrumbs, dto.BreadcrumbItem{ID: summary.AssetID, Name: summary.Name})
 
-		bars, _ := s.loadDedupedBars(summary.AssetID)
+		bars, _ := s.loadDedupedBarsUpTo(summary.AssetID, meta.AsOf)
 		month1Pct = computeTrailingReturnPct(bars, 21)
 		year1Pct = computeTrailingReturnPct(bars, 252)
 
@@ -745,13 +1004,59 @@ func (s *TrendService) GetAssetDetail(ctx context.Context, id, scopeID, currency
 		recentEvents = []dto.TrendEventItem{}
 	}
 
+	var earliestDate *string
+	var availableRanges []string
+	var rangeAvailability []dto.RangeAvailabilityItem
+	if target.Asset != nil {
+		bars, _ := s.loadSnapshotSeriesBars(snapshotID, target.Asset.AssetID, meta.AsOf)
+		earliestDate, availableRanges, rangeAvailability = computeRangeAvailability(bars, meta.AsOf)
+	} else {
+		_, availableRanges, rangeAvailability = computePoolRangeAvailability(summary.AsOf, meta.AsOf)
+	}
+
+	availCurrencies := []string{"ORIGINAL"}
+	var currencyNotes []string
+	fxTbl := s.buildFXTable(meta.AsOf)
+	if target.Asset != nil {
+		if target.Asset.MeasureType == "yield_pct" {
+			availCurrencies = []string{"ORIGINAL"}
+			currencyNotes = append(currencyNotes, "利率类指标按基点/百分点原口径展示，不进行货币汇率折算")
+		} else {
+			nativeCcy := trend.NormalizeMatrixCurrency(target.Asset.Currency)
+			if nativeCcy != "" && nativeCcy != "ORIGINAL" {
+				availCurrencies = []string{nativeCcy, "ORIGINAL"}
+			}
+			for _, targetCcy := range []string{"CNY", "USD", "HKD"} {
+				if targetCcy == nativeCcy {
+					continue
+				}
+				if _, ok := fxTbl.LookupRate(nativeCcy, targetCcy, meta.AsOf); ok {
+					availCurrencies = append(availCurrencies, targetCcy)
+				} else {
+					currencyNotes = append(currencyNotes, fmt.Sprintf("缺少 %s/%s 汇率链路，暂不支持 %s 计价折算", nativeCcy, targetCcy, targetCcy))
+				}
+			}
+		}
+	} else {
+		availCurrencies = []string{"ORIGINAL", "CNY"}
+		if _, ok := fxTbl.LookupRate("USD", "CNY", meta.AsOf); ok {
+			availCurrencies = append(availCurrencies, "USD")
+		}
+		if _, ok := fxTbl.LookupRate("HKD", "CNY", meta.AsOf); ok {
+			availCurrencies = append(availCurrencies, "HKD")
+		}
+	}
+
 	return &dto.AssetDetailResponse{
 		Snapshot:            meta,
 		Asset:               summary,
 		Breadcrumbs:         breadcrumbs,
 		AvailableCharts:     availableCharts,
-		AvailableRanges:     []string{"1M", "3M", "6M", "1Y", "3Y", "5Y", "ALL"},
-		AvailableCurrencies: []string{"ORIGINAL", "CNY", "USD"},
+		AvailableRanges:     availableRanges,
+		RangeAvailability:   rangeAvailability,
+		EarliestDate:        earliestDate,
+		AvailableCurrencies: availCurrencies,
+		CurrencyNotes:       currencyNotes,
 		BenchmarkID:         benchmarkID,
 		BenchmarkName:       benchmarkName,
 		PeriodChanges: dto.PeriodChanges{
@@ -762,53 +1067,367 @@ func (s *TrendService) GetAssetDetail(ctx context.Context, id, scopeID, currency
 	}, nil
 }
 
-// GetAssetMembers 返回观察池/分类成员列表，支持排序白名单与游标分页。
-func (s *TrendService) GetAssetMembers(ctx context.Context, id, scopeID, sortField, order, cursor string, limit int, currency string) (*dto.MembersResponse, error) {
-	parentID, parentName, members, err := s.resolvePoolMembers(id)
+// MembersQuery 描述观察池成员查询参数（支持服务端筛选、稳定排序与游标绑定）。
+type MembersQuery struct {
+	PoolID          string
+	ScopeID         string
+	SortField       string
+	Order           string
+	Cursor          string
+	Limit           int
+	Currency        string
+	SnapshotID      string
+	MarketFilter    string
+	AssetTypeFilter string
+	StatusFilter    string
+	QueryFilter     string
+}
+
+// GetAssetMembers 返回观察池/分类成员列表，在同池同快照下先筛选、再稳定排序，最后游标分页。
+func (s *TrendService) GetAssetMembers(ctx context.Context, q MembersQuery) (*dto.MembersResponse, error) {
+	parentID, parentName, members, err := s.resolvePoolMembers(q.PoolID)
 	if err != nil {
 		return nil, err
 	}
 
-	effScope := firstNonEmpty(scopeID, parentID, defaultScopeID)
-	snap, meta, err := s.resolveSnapshot("", effScope, currency, defaultMode)
+	effScope := firstNonEmpty(q.ScopeID, parentID, defaultScopeID)
+	snap, meta, err := s.resolveSnapshot(q.SnapshotID, effScope, q.Currency, defaultMode)
 	if err != nil {
 		return nil, err
 	}
 
-	items, err := s.buildAssetSummaries(snap, effScope, members)
+	offset, err := parseBoundCursor(q.Cursor, meta.SnapshotID)
 	if err != nil {
 		return nil, err
 	}
 
-	sortAssetSummaries(items, sortField, order)
+	allItems, err := s.buildAssetSummaries(snap, effScope, members)
+	if err != nil {
+		return nil, err
+	}
 
-	total := len(items)
-	offset := parseCursor(cursor)
+	// 全池统计与全池市场选项（不受筛选与分页影响）
+	overview := computeOverviewFromSummaries(allItems)
+	availableMarkets := collectAvailableMarkets(allItems)
+
+	// 服务端筛选（市场 / 类型 / 趋势状态 / 关键词）
+	filtered := filterAssetSummaries(allItems, q.MarketFilter, q.AssetTypeFilter, q.StatusFilter, q.QueryFilter)
+
+	// 稳定排序（以 asset_id 打破并列）
+	sortAssetSummaries(filtered, q.SortField, q.Order)
+
+	matchedTotal := len(filtered)
+	limit := q.Limit
 	if limit <= 0 {
 		limit = defaultLimit
 	}
-	if offset > total {
-		offset = total
+	if offset > matchedTotal {
+		offset = matchedTotal
 	}
 	end := offset + limit
-	if end > total {
-		end = total
+	if end > matchedTotal {
+		end = matchedTotal
 	}
 
 	var nextCursor *string
-	if end < total {
-		nc := strconv.Itoa(end)
+	if end < matchedTotal {
+		nc := encodeBoundCursor(meta.SnapshotID, end)
 		nextCursor = &nc
 	}
 
 	return &dto.MembersResponse{
-		Snapshot:   meta,
-		ParentID:   parentID,
-		ParentName: parentName,
-		Items:      items[offset:end],
-		NextCursor: nextCursor,
-		Total:      total,
+		Snapshot:         meta,
+		ParentID:         parentID,
+		ParentName:       parentName,
+		Items:            filtered[offset:end],
+		NextCursor:       nextCursor,
+		Total:            matchedTotal,
+		PoolTotal:        overview.TotalCount,
+		ValidCount:       overview.ValidCount,
+		MatchedTotal:     matchedTotal,
+		Overview:         &overview,
+		AvailableMarkets: availableMarkets,
+		SortScope:        "pool",
 	}, nil
+}
+
+type PeriodMatrixQuery struct {
+	PoolID          string
+	ScopeID         string
+	SnapshotID      string
+	Currency        string
+	SortField       string
+	Order           string
+	Cursor          string
+	Limit           int
+	MarketFilter    string
+	AssetTypeFilter string
+	StatusFilter    string
+	QueryFilter     string
+}
+
+// GetPeriodMatrix 计算观察池在指定快照和计价币种下的多周期收益率矩阵。
+func (s *TrendService) GetPeriodMatrix(ctx context.Context, q PeriodMatrixQuery) (*dto.PeriodMatrixResponse, error) {
+	parentID, parentName, members, err := s.resolvePoolMembers(q.PoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	effScope := firstNonEmpty(q.ScopeID, parentID, defaultScopeID)
+	snap, meta, err := s.resolveSnapshot(q.SnapshotID, effScope, q.Currency, defaultMode)
+	if err != nil {
+		return nil, err
+	}
+
+	offset, err := parseBoundCursor(q.Cursor, meta.SnapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	allItems, err := s.buildAssetSummaries(snap, effScope, members)
+	if err != nil {
+		return nil, err
+	}
+
+	// 补全分组名称（优先分类中文名）
+	catNameMap := make(map[string]string, len(market.V4Categories))
+	for _, c := range market.V4Categories {
+		catNameMap[c.ID] = c.Name
+	}
+	assetMetaMap := make(map[string]storage.AssetEntity, len(members))
+	memberIDs := make([]string, 0, len(members)+1)
+	for _, m := range members {
+		assetMetaMap[m.AssetID] = m
+		memberIDs = append(memberIDs, m.AssetID)
+	}
+	for i := range allItems {
+		if seedAsset, ok := market.GetCatalogAsset(allItems[i].AssetID); ok {
+			if cn, exists := catNameMap[seedAsset.CategoryID]; exists && cn != "" {
+				allItems[i].GroupName = cn
+			}
+		}
+	}
+
+	overview := computeOverviewFromSummaries(allItems)
+	availableMarkets := collectAvailableMarkets(allItems)
+
+	// 服务端筛选（在全池范围内先筛选，保证匹配数与分页总数一致）
+	filtered := filterAssetSummaries(allItems, q.MarketFilter, q.AssetTypeFilter, q.StatusFilter, q.QueryFilter)
+	filteredSet := make(map[string]struct{}, len(filtered))
+	filteredIDs := make([]string, 0, len(filtered)+1)
+	for _, it := range filtered {
+		filteredSet[it.AssetID] = struct{}{}
+		filteredIDs = append(filteredIDs, it.AssetID)
+	}
+	fetchIDs := append(filteredIDs, "GLOBAL.FX.USDCNH")
+	barsMap, err := s.store.ListDailyBarsForAssets(fetchIDs, meta.AsOf)
+	if err != nil {
+		return nil, err
+	}
+	fxTable := s.buildFXTableFromMap(meta.AsOf, barsMap)
+
+	targetCcy := trend.NormalizeMatrixCurrency(firstNonEmpty(q.Currency, meta.Currency, defaultCurrency))
+	rows := make([]dto.MatrixRow, 0, len(filtered))
+	for _, it := range filtered {
+		am := assetMetaMap[it.AssetID]
+		bars := barsMap[it.AssetID]
+		mBars := make([]trend.MatrixBarPoint, 0, len(bars))
+		for _, b := range bars {
+			mBars = append(mBars, trend.MatrixBarPoint{
+				TradingDate:      b.TradingDate,
+				Close:            b.Close,
+				AdjustedClose:    b.AdjustedClose,
+				TotalReturnIndex: b.TotalReturnIndex,
+				YieldPct:         b.YieldPct,
+				QualityStatus:    b.QualityStatus,
+			})
+		}
+		computed := trend.ComputeAssetPeriodMatrix(
+			trend.MatrixAssetInput{
+				AssetID:       am.AssetID,
+				Market:        am.Market,
+				MeasureType:   am.MeasureType,
+				Currency:      am.Currency,
+				Timezone:      am.Timezone,
+				LicenseStatus: am.LicenseStatus,
+				SourceName:    am.SourceName,
+			},
+			mBars,
+			targetCcy,
+			meta.AsOf,
+			fxTable,
+		)
+		dtoCells := make(map[string]dto.MatrixCell, len(computed))
+		for k, c := range computed {
+			dtoCells[k] = dto.MatrixCell{
+				PeriodKey:     c.PeriodKey,
+				StartDate:     c.StartDate,
+				EndDate:       c.EndDate,
+				StartValue:    c.StartValue,
+				EndValue:      c.EndValue,
+				ReturnPct:     c.ReturnPct,
+				BpChange:      c.BpChange,
+				DisplayUnit:   c.DisplayUnit,
+				ReturnType:    c.ReturnType,
+				Currency:      c.Currency,
+				FXApplied:     c.FXApplied,
+				FXPair:        c.FXPair,
+				StartFX:       c.StartFX,
+				EndFX:         c.EndFX,
+				QualityStatus: c.QualityStatus,
+				SourceName:    c.SourceName,
+				Reason:        c.Reason,
+			}
+		}
+		rows = append(rows, dto.MatrixRow{
+			Asset: it,
+			Cells: dtoCells,
+		})
+	}
+
+	sortField := strings.TrimSpace(q.SortField)
+	order := strings.ToLower(strings.TrimSpace(q.Order))
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+	if sortField != "" {
+		sortMatrixRows(rows, sortField, order)
+	}
+
+	matchedTotal := len(rows)
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if offset > matchedTotal {
+		offset = matchedTotal
+	}
+	end := offset + limit
+	if end > matchedTotal {
+		end = matchedTotal
+	}
+	pageRows := rows[offset:end]
+
+	var nextCursor *string
+	if end < matchedTotal {
+		nc := encodeBoundCursor(meta.SnapshotID, end)
+		nextCursor = &nc
+	}
+
+	colSpecs := trend.DefaultMatrixColumns()
+	cols := make([]dto.MatrixColumnDef, 0, len(colSpecs))
+	for _, cs := range colSpecs {
+		cols = append(cols, dto.MatrixColumnDef{
+			Key:        cs.Key,
+			Label:      cs.Label,
+			PeriodType: cs.PeriodType,
+			Sortable:   cs.Sortable,
+		})
+	}
+
+	// 按分组汇总（当有明确排序字段时保留排序名次避免拆散榜单，或按首现分组聚合）
+	groups := make([]dto.MatrixGroup, 0)
+	groupIdx := make(map[string]int)
+	if sortField != "" {
+		if len(pageRows) > 0 {
+			groups = append(groups, dto.MatrixGroup{
+				GroupName: "全池排序结果",
+				Rows:      pageRows,
+			})
+		}
+	} else {
+		for _, row := range pageRows {
+			gn := firstNonEmpty(row.Asset.GroupName, row.Asset.Market, "其他")
+			idx, ok := groupIdx[gn]
+			if !ok {
+				idx = len(groups)
+				groupIdx[gn] = idx
+				groups = append(groups, dto.MatrixGroup{
+					GroupName: gn,
+					Rows:      []dto.MatrixRow{},
+				})
+			}
+			groups[idx].Rows = append(groups[idx].Rows, row)
+		}
+	}
+
+	return &dto.PeriodMatrixResponse{
+		Snapshot:         meta,
+		PoolID:           parentID,
+		PoolName:         parentName,
+		Currency:         targetCcy,
+		CutoffDate:       meta.AsOf,
+		Columns:          cols,
+		Groups:           groups,
+		NextCursor:       nextCursor,
+		Total:            matchedTotal,
+		PoolTotal:        overview.TotalCount,
+		ValidCount:       overview.ValidCount,
+		MatchedTotal:     matchedTotal,
+		Overview:         &overview,
+		AvailableMarkets: availableMarkets,
+		SortScope:        "pool",
+		SortField:        sortField,
+		SortOrder:        order,
+	}, nil
+}
+
+func sortMatrixRows(rows []dto.MatrixRow, sortField, order string) {
+	desc := strings.ToLower(order) != "asc"
+	periodKeys := map[string]bool{
+		"wtd": true, "mtd": true, "qtd": true, "ytd": true, "prev_year": true, "rolling_1m": true,
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if periodKeys[sortField] {
+			ca, oka := a.Cells[sortField]
+			cb, okb := b.Cells[sortField]
+			var va, vb float64
+			validA := oka && ca.ReturnPct != nil && a.Asset.MeasureType != "yield_pct"
+			validB := okb && cb.ReturnPct != nil && b.Asset.MeasureType != "yield_pct"
+			if validA {
+				va = *ca.ReturnPct
+			}
+			if validB {
+				vb = *cb.ReturnPct
+			}
+			if validA != validB {
+				return validA
+			}
+			if !validA || va == vb {
+				return a.Asset.AssetID < b.Asset.AssetID
+			}
+			if desc {
+				return va > vb
+			}
+			return va < vb
+		}
+		if sortField == "name" || sortField == "asset_id" {
+			sa, sb := a.Asset.Name, b.Asset.Name
+			if sortField == "asset_id" {
+				sa, sb = a.Asset.AssetID, b.Asset.AssetID
+			}
+			if sa != sb {
+				if desc {
+					return sa > sb
+				}
+				return sa < sb
+			}
+			return a.Asset.AssetID < b.Asset.AssetID
+		}
+		va, oka := extractSortVal(a.Asset, sortField)
+		vb, okb := extractSortVal(b.Asset, sortField)
+		if oka != okb {
+			return oka
+		}
+		if !oka || va == vb {
+			return a.Asset.AssetID < b.Asset.AssetID
+		}
+		if desc {
+			return va > vb
+		}
+		return va < vb
+	})
 }
 
 // GetLatestSnapshot 返回当前生效快照元数据。
@@ -821,7 +1440,7 @@ func (s *TrendService) GetLatestSnapshot(ctx context.Context, scopeID, currency,
 }
 
 // GetTrendCurve 返回单资产趋势曲线、极值（最大回撤/最大涨幅）、状态机区间与事件。
-func (s *TrendService) GetTrendCurve(ctx context.Context, id, rangeStr, freq, currency, benchmarkID, snapshotID string) (*dto.TrendCurveResponse, error) {
+func (s *TrendService) GetTrendCurve(ctx context.Context, id, rangeStr, freq, currency, benchmarkID, snapshotID, startDate, endDate string) (*dto.TrendCurveResponse, error) {
 	target := s.resolveTarget(id)
 	if target.Asset == nil {
 		return nil, ErrNotFound
@@ -838,11 +1457,41 @@ func (s *TrendService) GetTrendCurve(ctx context.Context, id, rangeStr, freq, cu
 		freq = defaultFreq
 	}
 
-	allBars, err := s.loadDedupedBars(target.Asset.AssetID)
+	allBars, err := s.loadSnapshotSeriesBars(snapshotID, target.Asset.AssetID, meta.AsOf)
 	if err != nil {
 		return nil, err
 	}
-	rangedBars := filterBarsByRange(allBars, rangeStr)
+	var rangedBars []storage.DailyBarEntity
+	if startDate != "" || endDate != "" {
+		rangedBars = filterBarsByDateWindow(allBars, startDate, endDate)
+	} else {
+		rangedBars = filterBarsByRange(allBars, rangeStr)
+	}
+
+	reqCcy := trend.NormalizeMatrixCurrency(currency)
+	nativeCcy := trend.NormalizeMatrixCurrency(target.Asset.Currency)
+	if nativeCcy == "" || nativeCcy == "ORIGINAL" {
+		nativeCcy = "ORIGINAL"
+	}
+	effCcy := nativeCcy
+	fxApplied := false
+	fxPair := ""
+	var fxTbl *trend.MatrixFXTable
+	if reqCcy != "" && reqCcy != "ORIGINAL" && reqCcy != nativeCcy && target.Asset.MeasureType != "yield_pct" && target.Asset.MeasureType != "fx_rate" {
+		fxTbl = s.buildFXTable(meta.AsOf)
+		if convBars, okConv := convertBarsByCurrency(rangedBars, nativeCcy, reqCcy, fxTbl); okConv {
+			rangedBars = convBars
+			effCcy = reqCcy
+			fxApplied = true
+			fxPair = nativeCcy + "/" + reqCcy
+		} else {
+			meta.Warnings = append(meta.Warnings, fmt.Sprintf("缺少 %s/%s 完整汇率序列，曲线已回落原币种(%s)口径", nativeCcy, reqCcy, nativeCcy))
+		}
+	} else if reqCcy == nativeCcy && nativeCcy != "ORIGINAL" {
+		effCcy = nativeCcy
+	}
+	meta.RequestedCurrency = reqCcy
+	meta.EffectiveCurrency = effCcy
 	points := buildSeriesPoints(rangedBars)
 
 	effBenchID := benchmarkID
@@ -857,8 +1506,24 @@ func (s *TrendService) GetTrendCurve(ctx context.Context, id, rangeStr, freq, cu
 			bName := ba.Name
 			benchIDPtr = &bID
 			benchNamePtr = &bName
-			bBars, _ := s.loadDedupedBars(bID)
-			benchPoints = buildSeriesPoints(filterBarsByRange(bBars, rangeStr))
+			bBars, _ := s.loadSnapshotSeriesBars(snapshotID, bID, meta.AsOf)
+			var rangedBench []storage.DailyBarEntity
+			if startDate != "" || endDate != "" {
+				rangedBench = filterBarsByDateWindow(bBars, startDate, endDate)
+			} else {
+				rangedBench = filterBarsByRange(bBars, rangeStr)
+			}
+			bNativeCcy := trend.NormalizeMatrixCurrency(ba.Currency)
+			// 仅当用户指定了目标汇聚币种（非 ORIGINAL 原币口径）且主序列处于目标币种时，同步换算基准
+			if reqCcy != "" && reqCcy != "ORIGINAL" && effCcy == reqCcy && bNativeCcy != "" && bNativeCcy != effCcy {
+				if fxTbl == nil {
+					fxTbl = s.buildFXTable(meta.AsOf)
+				}
+				if convBench, okB := convertBarsByCurrency(rangedBench, bNativeCcy, effCcy, fxTbl); okB {
+					rangedBench = convBench
+				}
+			}
+			benchPoints = buildSeriesPoints(rangedBench)
 		}
 	}
 
@@ -902,18 +1567,22 @@ func (s *TrendService) GetTrendCurve(ctx context.Context, id, rangeStr, freq, cu
 	}
 
 	return &dto.TrendCurveResponse{
-		Snapshot:        meta,
-		AssetID:         target.Asset.AssetID,
-		AssetName:       target.Asset.Name,
-		BenchmarkID:     benchIDPtr,
-		BenchmarkName:   benchNamePtr,
-		Range:           rangeStr,
-		Freq:            freq,
-		Points:          points,
-		BenchmarkPoints: benchPoints,
-		Extremum:        extInfo,
-		StateIntervals:  intervals,
-		Events:          curveEvents,
+		Snapshot:          meta,
+		AssetID:           target.Asset.AssetID,
+		AssetName:         target.Asset.Name,
+		RequestedCurrency: reqCcy,
+		EffectiveCurrency: effCcy,
+		FXApplied:         fxApplied,
+		FXPair:            fxPair,
+		BenchmarkID:       benchIDPtr,
+		BenchmarkName:     benchNamePtr,
+		Range:             rangeStr,
+		Freq:              freq,
+		Points:            points,
+		BenchmarkPoints:   benchPoints,
+		Extremum:          extInfo,
+		StateIntervals:    intervals,
+		Events:            curveEvents,
 	}, nil
 }
 
@@ -928,7 +1597,7 @@ func (s *TrendService) GetTrendAnnual(ctx context.Context, id, yearsStr, currenc
 		return nil, err
 	}
 
-	allBars, err := s.loadDedupedBars(target.Asset.AssetID)
+	allBars, err := s.loadDedupedBarsUpTo(target.Asset.AssetID, meta.AsOf)
 	if err != nil {
 		return nil, err
 	}
@@ -1016,11 +1685,16 @@ func (s *TrendService) GetTrendComponents(ctx context.Context, id, scopeID, rang
 		summaries = summaries[:topN]
 	}
 
-	// 收集所有成员区间内的共同/并集时间轴
+	// 收集所有成员区间内的共同/并集时间轴（一次批量查询替代逐个查询）
+	memberIDs := make([]string, len(summaries))
+	for i, sm := range summaries {
+		memberIDs[i] = sm.AssetID
+	}
+	barsMap, _ := s.store.ListDailyBarsForAssets(memberIDs, meta.AsOf)
 	dateSet := make(map[string]struct{})
 	rangedByAsset := make(map[string][]storage.DailyBarEntity, len(summaries))
 	for _, sm := range summaries {
-		bars, _ := s.loadDedupedBars(sm.AssetID)
+		bars := barsMap[sm.AssetID]
 		rb := filterBarsByRange(bars, rangeStr)
 		rangedByAsset[sm.AssetID] = rb
 		for _, b := range rb {
@@ -1133,28 +1807,58 @@ func (s *TrendService) GetTrendDashboard(ctx context.Context, id, changePeriod, 
 		sortAssetSummaries(items, sortField, order)
 	}
 
-	groupMap := make(map[string][]dto.DashboardRow)
-	var groupNames []string
+	dashIDs := make([]string, len(items))
+	for i, it := range items {
+		dashIDs[i] = it.AssetID
+	}
+	dashBarsMap, _ := s.store.ListDailyBarsForAssets(dashIDs, meta.AsOf)
+
+	allRows := make([]dto.DashboardRow, 0, len(items))
 	for _, it := range items {
 		gName := firstNonEmpty(it.GroupName, it.Market, "其他")
 		if group != "" && gName != group {
 			continue
 		}
-		bars, _ := s.loadDedupedBars(it.AssetID)
+		it.GroupName = gName
+		bars := dashBarsMap[it.AssetID]
 		rb := filterBarsByRange(bars, sparkRange)
 		spark, sMin, sMax := buildSparkline(rb, 24)
 		chg := computePeriodChangeByCode(bars, changePeriod, it.DayChangePct)
-
-		if _, ok := groupMap[gName]; !ok {
-			groupNames = append(groupNames, gName)
-		}
-		groupMap[gName] = append(groupMap[gName], dto.DashboardRow{
+		allRows = append(allRows, dto.DashboardRow{
 			Asset:     it,
 			ChangePct: chg,
 			Sparkline: spark,
 			SparkMin:  sMin,
 			SparkMax:  sMax,
 		})
+	}
+
+	// 支持按实际选择的 change_period 进行涨跌幅真实排序（而非总按 1D 涨跌）
+	if sortField == "change" || sortField == "day_change_pct" {
+		desc := strings.ToLower(order) != "asc"
+		sort.SliceStable(allRows, func(i, j int) bool {
+			ai, aj := allRows[i].ChangePct, allRows[j].ChangePct
+			if (ai != nil) != (aj != nil) {
+				return ai != nil
+			}
+			if ai == nil || *ai == *aj {
+				return allRows[i].Asset.AssetID < allRows[j].Asset.AssetID
+			}
+			if desc {
+				return *ai > *aj
+			}
+			return *ai < *aj
+		})
+	}
+
+	groupMap := make(map[string][]dto.DashboardRow)
+	var groupNames []string
+	for _, row := range allRows {
+		gName := firstNonEmpty(row.Asset.GroupName, row.Asset.Market, "其他")
+		if _, ok := groupMap[gName]; !ok {
+			groupNames = append(groupNames, gName)
+		}
+		groupMap[gName] = append(groupMap[gName], row)
 	}
 
 	groups := make([]dto.DashboardGroup, 0, len(groupNames))
@@ -1635,6 +2339,18 @@ func (s *TrendService) resolveTarget(id string) resolvedTarget {
 	if u, ok := market.GetUniverse(cleanID); ok {
 		return resolvedTarget{Universe: &u, ScopeID: u.ID}
 	}
+	if dbUniverses, err := s.store.ListUniverses(false); err == nil {
+		for _, u := range dbUniverses {
+			if u.UniverseID == cleanID {
+				uDef := market.UniverseDef{
+					ID:          u.UniverseID,
+					Name:        u.Name,
+					Description: u.Description,
+				}
+				return resolvedTarget{Universe: &uDef, ScopeID: uDef.ID}
+			}
+		}
+	}
 	for _, c := range market.V4Categories {
 		if c.ID == cleanID {
 			cc := c
@@ -1688,6 +2404,24 @@ func (s *TrendService) resolveSnapshot(snapshotID, scopeID, currency, mode strin
 	var err error
 	if snapshotID != "" {
 		snap, err = s.store.GetSnapshotByID(snapshotID)
+		if errors.Is(err, sql.ErrNoRows) || snap == nil {
+			return nil, dto.SnapshotMeta{
+				SnapshotID:          "",
+				RequestedSnapshotID: snapshotID,
+				AsOf:                "",
+				ComputedAt:          "",
+				AlgorithmVersion:    trend.DefaultAlgorithmConfig().AlgorithmVersion,
+				Currency:            currency,
+				ScopeID:             scopeID,
+				ScopeLabel:          resolveScopeLabel(scopeID),
+				Mode:                mode,
+				Status:              "stale",
+				IsCurrent:           false,
+				IsExpired:           true,
+				SourceDates:         []dto.SourceDateMeta{},
+				Warnings:            []string{"请求的快照已过期或不存在"},
+			}, ErrSnapshotExpired
+		}
 	} else {
 		snap, err = s.store.GetCurrentSnapshot(scopeID, currency, mode)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1706,6 +2440,7 @@ func (s *TrendService) resolveSnapshot(snapshotID, scopeID, currency, mode strin
 			ScopeLabel:       resolveScopeLabel(scopeID),
 			Mode:             mode,
 			Status:           "insufficient",
+			IsCurrent:        false,
 			SourceDates:      []dto.SourceDateMeta{},
 			Warnings:         []string{"尚未生成趋势快照"},
 		}, nil
@@ -1722,22 +2457,29 @@ func (s *TrendService) resolveSnapshot(snapshotID, scopeID, currency, mode strin
 	if extra.Warnings == nil {
 		extra.Warnings = []string{}
 	}
+	if snapshotID != "" && !snap.IsCurrent {
+		extra.Warnings = append(extra.Warnings, fmt.Sprintf("当前锁定历史快照 %s（已有更新快照）", snap.AsOf))
+	}
 
 	meta := dto.SnapshotMeta{
-		SnapshotID:       snap.SnapshotID,
-		AsOf:             snap.AsOf,
-		ComputedAt:       snap.ComputedAt,
-		AlgorithmVersion: snap.AlgorithmVersion,
-		Currency:         snap.Currency,
-		ScopeID:          scopeID,
-		ScopeLabel:       firstNonEmpty(resolveScopeLabel(scopeID), extra.ScopeLabel),
-		CandidateCount:   snap.CandidateCount,
-		ValidCount:       snap.ValidCount,
-		Coverage:         snap.Coverage,
-		Mode:             snap.Mode,
-		Status:           snap.Status,
-		SourceDates:      extra.SourceDates,
-		Warnings:         extra.Warnings,
+		SnapshotID:          snap.SnapshotID,
+		RequestedSnapshotID: snapshotID,
+		AsOf:                snap.AsOf,
+		ComputedAt:          snap.ComputedAt,
+		AlgorithmVersion:    snap.AlgorithmVersion,
+		Currency:            snap.Currency,
+		RequestedCurrency:   currency,
+		EffectiveCurrency:   snap.Currency,
+		ScopeID:             scopeID,
+		ScopeLabel:          firstNonEmpty(resolveScopeLabel(scopeID), extra.ScopeLabel),
+		CandidateCount:      snap.CandidateCount,
+		ValidCount:          snap.ValidCount,
+		Coverage:            snap.Coverage,
+		Mode:                snap.Mode,
+		Status:              snap.Status,
+		IsCurrent:           snap.IsCurrent,
+		SourceDates:         extra.SourceDates,
+		Warnings:            extra.Warnings,
 	}
 	return snap, meta, nil
 }
@@ -1755,7 +2497,90 @@ func resolveScopeLabel(scopeID string) string {
 }
 
 func (s *TrendService) loadDedupedBars(assetID string) ([]storage.DailyBarEntity, error) {
-	raw, err := s.store.GetDailyBars(assetID, "", "", 0)
+	return s.loadDedupedBarsUpTo(assetID, "")
+}
+
+// loadSnapshotSeriesBars 当指定固定快照时优先读取其发布瞬间冻结的日线与修订，确保历史修订回填不改变已归档报告序列。
+func (s *TrendService) loadSnapshotSeriesBars(snapshotID, assetID, toDate string) ([]storage.DailyBarEntity, error) {
+	if snapshotID != "" {
+		frozen, err := s.store.GetFrozenSnapshotBars(snapshotID, assetID)
+		if err == nil && len(frozen) > 0 {
+			if toDate == "" {
+				return frozen, nil
+			}
+			out := make([]storage.DailyBarEntity, 0, len(frozen))
+			for _, b := range frozen {
+				if b.TradingDate <= toDate {
+					out = append(out, b)
+				}
+			}
+			return out, nil
+		}
+	}
+	return s.loadDedupedBarsUpTo(assetID, toDate)
+}
+
+func (s *TrendService) buildFXTable(toDate string) *trend.MatrixFXTable {
+	barsMap, _ := s.store.ListDailyBarsForAssets([]string{"GLOBAL.FX.USDCNH"}, toDate)
+	return s.buildFXTableFromMap(toDate, barsMap)
+}
+
+func (s *TrendService) buildFXTableFromMap(toDate string, preloadedBars map[string][]storage.DailyBarEntity) *trend.MatrixFXTable {
+	fxEntities, _ := s.store.ListFXRates(nil, toDate)
+	rawFX := make(map[string][]trend.MatrixFXPoint, len(fxEntities)+1)
+	for pair, list := range fxEntities {
+		pts := make([]trend.MatrixFXPoint, 0, len(list))
+		for _, item := range list {
+			pts = append(pts, trend.MatrixFXPoint{TradingDate: item.TradingDate, Rate: item.Rate})
+		}
+		rawFX[pair] = pts
+	}
+	if _, hasUSD := rawFX["USD/CNY"]; !hasUSD {
+		if cnhBars := preloadedBars["GLOBAL.FX.USDCNH"]; len(cnhBars) > 0 {
+			pts := make([]trend.MatrixFXPoint, 0, len(cnhBars))
+			for _, b := range cnhBars {
+				if b.Close != nil && *b.Close > 0 {
+					pts = append(pts, trend.MatrixFXPoint{TradingDate: b.TradingDate, Rate: *b.Close})
+				}
+			}
+			if len(pts) > 0 {
+				rawFX["USD/CNY"] = pts
+			}
+		}
+	}
+	return trend.NewMatrixFXTable(rawFX)
+}
+
+func convertBarsByCurrency(bars []storage.DailyBarEntity, fromCcy, toCcy string, fxTbl *trend.MatrixFXTable) ([]storage.DailyBarEntity, bool) {
+	if len(bars) == 0 || fxTbl == nil || fromCcy == "" || toCcy == "" || fromCcy == toCcy || toCcy == "ORIGINAL" {
+		return bars, true
+	}
+	converted := make([]storage.DailyBarEntity, 0, len(bars))
+	for _, b := range bars {
+		rate, ok := fxTbl.LookupRate(fromCcy, toCcy, b.TradingDate)
+		if !ok || rate <= 0 {
+			return nil, false
+		}
+		nb := b
+		if b.Close != nil {
+			v := round4(*b.Close * rate)
+			nb.Close = &v
+		}
+		if b.AdjustedClose != nil {
+			v := round4(*b.AdjustedClose * rate)
+			nb.AdjustedClose = &v
+		}
+		if b.TotalReturnIndex != nil {
+			v := round4(*b.TotalReturnIndex * rate)
+			nb.TotalReturnIndex = &v
+		}
+		converted = append(converted, nb)
+	}
+	return converted, true
+}
+
+func (s *TrendService) loadDedupedBarsUpTo(assetID, toDate string) ([]storage.DailyBarEntity, error) {
+	raw, err := s.store.GetDailyBars(assetID, "", toDate, 0)
 	if err != nil || len(raw) == 0 {
 		return raw, err
 	}
@@ -1775,34 +2600,45 @@ func (s *TrendService) buildAssetSummaries(snap *storage.TrendSnapshotEntity, sc
 	metricMap := make(map[string]storage.TrendDailyMetricEntity)
 	rankMap := make(map[string]storage.StrengthDailyRankingEntity)
 	eventMap := make(map[string][]dto.TrendEventItem)
+	barsMap := make(map[string][]storage.DailyBarEntity)
 
-	if snap != nil && len(assets) > 0 {
+	maxDate := ""
+	if snap != nil {
+		maxDate = snap.AsOf
+	}
+
+	if len(assets) > 0 {
 		ids := make([]string, len(assets))
 		for i, a := range assets {
 			ids[i] = a.AssetID
 		}
-		if metrics, err := s.store.ListTrendDailyMetrics(snap.SnapshotID, ids); err == nil {
-			for _, m := range metrics {
-				metricMap[m.AssetID] = m
+		if loadedBars, err := s.store.ListDailyBarsForAssets(ids, maxDate); err == nil {
+			barsMap = loadedBars
+		}
+		if snap != nil {
+			if metrics, err := s.store.ListTrendDailyMetrics(snap.SnapshotID, ids); err == nil {
+				for _, m := range metrics {
+					metricMap[m.AssetID] = m
+				}
 			}
-		}
-		rankings, err := s.store.ListStrengthDailyRankings(snap.SnapshotID, scopeID, defaultCurrency)
-		if err != nil || len(rankings) == 0 {
-			rankings, _ = s.store.ListStrengthDailyRankings(snap.SnapshotID, defaultScopeID, defaultCurrency)
-		}
-		for _, r := range rankings {
-			rankMap[r.AssetID] = r
-		}
-		if evs, err := s.store.ListTrendEvents(snap.SnapshotID, "", nil, 200, 0); err == nil {
-			for _, ev := range evs {
-				eventMap[ev.AssetID] = append(eventMap[ev.AssetID], mapEventEntity(ev))
+			rankings, err := s.store.ListStrengthDailyRankings(snap.SnapshotID, scopeID, defaultCurrency)
+			if err != nil || len(rankings) == 0 {
+				rankings, _ = s.store.ListStrengthDailyRankings(snap.SnapshotID, defaultScopeID, defaultCurrency)
+			}
+			for _, r := range rankings {
+				rankMap[r.AssetID] = r
+			}
+			if evs, err := s.store.ListTrendEvents(snap.SnapshotID, "", nil, 200, 0); err == nil {
+				for _, ev := range evs {
+					eventMap[ev.AssetID] = append(eventMap[ev.AssetID], mapEventEntity(ev))
+				}
 			}
 		}
 	}
 
 	items := make([]dto.AssetSummaryItem, 0, len(assets))
 	for _, a := range assets {
-		bars, _ := s.loadDedupedBars(a.AssetID)
+		bars := barsMap[a.AssetID]
 		var asOfPtr *string
 		var latestVal, dayChg, turnover *float64
 		qStatus := "insufficient"
@@ -2159,12 +2995,27 @@ func sortAssetSummaries(items []dto.AssetSummaryItem, sortField, order string) {
 	desc := strings.ToLower(order) != "asc"
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
+		if sortField == "name" || sortField == "asset_id" {
+			var sa, sb string
+			if sortField == "name" {
+				sa, sb = a.Name, b.Name
+			} else {
+				sa, sb = a.AssetID, b.AssetID
+			}
+			if sa != sb {
+				if desc {
+					return sa > sb
+				}
+				return sa < sb
+			}
+			return a.AssetID < b.AssetID
+		}
 		va, oka := extractSortVal(a, sortField)
 		vb, okb := extractSortVal(b, sortField)
 		if oka != okb {
 			return oka
 		}
-		if !oka {
+		if !oka || va == vb {
 			return a.AssetID < b.AssetID
 		}
 		if desc {
@@ -2188,7 +3039,7 @@ func extractSortVal(item dto.AssetSummaryItem, field string) (float64, bool) {
 		if item.DayChangePct != nil {
 			return *item.DayChangePct, true
 		}
-	case "duration_trading_days", "days":
+	case "duration_trading_days", "duration", "days":
 		if item.Metrics.DurationTradingDays != nil {
 			return float64(*item.Metrics.DurationTradingDays), true
 		}
@@ -2290,4 +3141,277 @@ func round2(v float64) float64 {
 
 func round4(v float64) float64 {
 	return math.Round(v*10000) / 10000
+}
+
+func computeOverviewFromMetrics(metrics []storage.TrendDailyMetricEntity) dto.CatalogOverview {
+	overview := dto.CatalogOverview{
+		TotalCount: len(metrics),
+	}
+	for _, m := range metrics {
+		switch {
+		case m.Side == string(trend.SideRight) && m.Confirmation == string(trend.ConfirmationConfirmed):
+			overview.RightCount++
+			overview.ValidCount++
+		case m.Side == string(trend.SideLeft) && m.Confirmation == string(trend.ConfirmationConfirmed):
+			overview.LeftCount++
+			overview.ValidCount++
+		case m.Confirmation == string(trend.ConfirmationForming):
+			overview.FormingCount++
+			overview.ValidCount++
+		case m.Side != string(trend.SideUnknown) && m.Side != "":
+			overview.OtherCount++
+			overview.ValidCount++
+		}
+	}
+	overview.UncoveredCount = max(0, overview.TotalCount-overview.ValidCount)
+	if overview.ValidCount > 0 {
+		rr := round2(float64(overview.RightCount) * 100 / float64(overview.ValidCount))
+		lr := round2(float64(overview.LeftCount) * 100 / float64(overview.ValidCount))
+		or := round2(float64(overview.OtherCount+overview.FormingCount) * 100 / float64(overview.ValidCount))
+		overview.RightRatioPct = &rr
+		overview.LeftRatioPct = &lr
+		overview.OtherRatioPct = &or
+	}
+	return overview
+}
+
+func computeOverviewFromSummaries(items []dto.AssetSummaryItem) dto.CatalogOverview {
+	overview := dto.CatalogOverview{
+		TotalCount: len(items),
+	}
+	for _, it := range items {
+		m := it.Metrics
+		switch {
+		case m.Side == string(trend.SideRight) && m.Confirmation == string(trend.ConfirmationConfirmed):
+			overview.RightCount++
+			overview.ValidCount++
+		case m.Side == string(trend.SideLeft) && m.Confirmation == string(trend.ConfirmationConfirmed):
+			overview.LeftCount++
+			overview.ValidCount++
+		case m.Confirmation == string(trend.ConfirmationForming):
+			overview.FormingCount++
+			overview.ValidCount++
+		case m.Side != string(trend.SideUnknown) && m.Side != "":
+			overview.OtherCount++
+			overview.ValidCount++
+		}
+	}
+	overview.UncoveredCount = max(0, overview.TotalCount-overview.ValidCount)
+	if overview.ValidCount > 0 {
+		rr := round2(float64(overview.RightCount) * 100 / float64(overview.ValidCount))
+		lr := round2(float64(overview.LeftCount) * 100 / float64(overview.ValidCount))
+		or := round2(float64(overview.OtherCount+overview.FormingCount) * 100 / float64(overview.ValidCount))
+		overview.RightRatioPct = &rr
+		overview.LeftRatioPct = &lr
+		overview.OtherRatioPct = &or
+	}
+	return overview
+}
+
+func collectAvailableMarkets(items []dto.AssetSummaryItem) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
+	for _, it := range items {
+		if it.Market == "" {
+			continue
+		}
+		if _, ok := seen[it.Market]; ok {
+			continue
+		}
+		seen[it.Market] = struct{}{}
+		out = append(out, it.Market)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func filterAssetSummaries(items []dto.AssetSummaryItem, marketFilter, assetTypeFilter, statusFilter, queryFilter string) []dto.AssetSummaryItem {
+	mFilter := strings.TrimSpace(marketFilter)
+	tFilter := strings.TrimSpace(strings.ToLower(assetTypeFilter))
+	sFilter := strings.TrimSpace(strings.ToLower(statusFilter))
+	qFilter := strings.TrimSpace(strings.ToLower(queryFilter))
+
+	out := make([]dto.AssetSummaryItem, 0, len(items))
+	for _, it := range items {
+		if mFilter != "" && mFilter != "all" && !strings.EqualFold(it.Market, mFilter) {
+			continue
+		}
+		if tFilter != "" && tFilter != "all" {
+			itType := strings.ToLower(it.AssetType)
+			if tFilter == "future" || tFilter == "futures" {
+				if itType != "future" && itType != "futures" {
+					continue
+				}
+			} else if tFilter == "bond" || tFilter == "bond_yield" {
+				if itType != "bond" && itType != "bond_yield" {
+					continue
+				}
+			} else if itType != tFilter {
+				continue
+			}
+		}
+		switch sFilter {
+		case "right":
+			if !(it.Metrics.Side == string(trend.SideRight) && it.Metrics.Confirmation == string(trend.ConfirmationConfirmed)) {
+				continue
+			}
+		case "left":
+			if !(it.Metrics.Side == string(trend.SideLeft) && it.Metrics.Confirmation == string(trend.ConfirmationConfirmed)) {
+				continue
+			}
+		case "forming":
+			if it.Metrics.Confirmation != string(trend.ConfirmationForming) {
+				continue
+			}
+		case "other":
+			isConfirmedOrForming := (it.Metrics.Side == string(trend.SideRight) && it.Metrics.Confirmation == string(trend.ConfirmationConfirmed)) ||
+				(it.Metrics.Side == string(trend.SideLeft) && it.Metrics.Confirmation == string(trend.ConfirmationConfirmed)) ||
+				it.Metrics.Confirmation == string(trend.ConfirmationForming)
+			if isConfirmedOrForming || it.Metrics.Side == string(trend.SideUnknown) || it.Metrics.Side == "" {
+				continue
+			}
+		case "uncovered":
+			if it.Metrics.Side != string(trend.SideUnknown) && it.Metrics.Side != "" {
+				continue
+			}
+		}
+		if qFilter != "" {
+			if !strings.Contains(strings.ToLower(it.Name), qFilter) &&
+				!strings.Contains(strings.ToLower(it.Symbol), qFilter) &&
+				!strings.Contains(strings.ToLower(it.AssetID), qFilter) {
+				continue
+			}
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+func filterBarsByDateWindow(bars []storage.DailyBarEntity, startDate, endDate string) []storage.DailyBarEntity {
+	if len(bars) == 0 {
+		return bars
+	}
+	out := make([]storage.DailyBarEntity, 0, len(bars))
+	for _, b := range bars {
+		if startDate != "" && b.TradingDate < startDate {
+			continue
+		}
+		if endDate != "" && b.TradingDate > endDate {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+func computeRangeAvailability(bars []storage.DailyBarEntity, snapAsOf string) (*string, []string, []dto.RangeAvailabilityItem) {
+	allRanges := []string{"1M", "3M", "6M", "1Y", "3Y", "5Y", "ALL"}
+	if len(bars) < 2 {
+		var earliest *string
+		if len(bars) == 1 {
+			d := bars[0].TradingDate
+			earliest = &d
+		}
+		items := make([]dto.RangeAvailabilityItem, 0, len(allRanges))
+		for _, r := range allRanges {
+			items = append(items, dto.RangeAvailabilityItem{
+				Range:        r,
+				Available:    false,
+				EarliestDate: earliest,
+				Reason:       "历史样本不足 2 个交易日",
+			})
+		}
+		return earliest, []string{}, items
+	}
+
+	earliestStr := bars[0].TradingDate
+	earliest := &earliestStr
+	lastStr := bars[len(bars)-1].TradingDate
+	firstT, err1 := time.Parse("2006-01-02", earliestStr)
+	lastT, err2 := time.Parse("2006-01-02", lastStr)
+	if err1 != nil || err2 != nil {
+		return earliest, allRanges, nil
+	}
+
+	minDaysMap := map[string]int{
+		"1M": 14,
+		"3M": 70,
+		"6M": 150,
+		"1Y": 320,
+		"3Y": 1000,
+		"5Y": 1700,
+	}
+	spanDays := int(lastT.Sub(firstT).Hours() / 24)
+
+	available := make([]string, 0, len(allRanges))
+	items := make([]dto.RangeAvailabilityItem, 0, len(allRanges))
+	for _, r := range allRanges {
+		if r == "ALL" {
+			available = append(available, r)
+			items = append(items, dto.RangeAvailabilityItem{
+				Range:        r,
+				Available:    true,
+				EarliestDate: earliest,
+			})
+			continue
+		}
+		reqDays := minDaysMap[r]
+		ok := spanDays >= reqDays
+		reason := ""
+		if ok {
+			available = append(available, r)
+		} else {
+			reason = fmt.Sprintf("历史起始 %s，不足 %s", earliestStr, r)
+		}
+		items = append(items, dto.RangeAvailabilityItem{
+			Range:        r,
+			Available:    ok,
+			EarliestDate: earliest,
+			Reason:       reason,
+		})
+	}
+	return earliest, available, items
+}
+
+func computePoolRangeAvailability(poolAsOf *string, snapAsOf string) (*string, []string, []dto.RangeAvailabilityItem) {
+	allRanges := []string{"1M", "3M", "6M", "1Y", "3Y", "5Y", "ALL"}
+	items := make([]dto.RangeAvailabilityItem, 0, len(allRanges))
+	for _, r := range allRanges {
+		items = append(items, dto.RangeAvailabilityItem{
+			Range:     r,
+			Available: true,
+		})
+	}
+	return poolAsOf, allRanges, items
+}
+
+func encodeBoundCursor(snapshotID string, offset int) string {
+	if snapshotID == "" {
+		return strconv.Itoa(offset)
+	}
+	return fmt.Sprintf("%s:%d", snapshotID, offset)
+}
+
+func parseBoundCursor(cursor string, expectedSnapshotID string) (int, error) {
+	trimmed := strings.TrimSpace(cursor)
+	if trimmed == "" {
+		return 0, nil
+	}
+	if idx := strings.LastIndex(trimmed, ":"); idx > 0 {
+		snapPart := trimmed[:idx]
+		offPart := trimmed[idx+1:]
+		if expectedSnapshotID != "" && snapPart != expectedSnapshotID {
+			return 0, ErrStaleCursor
+		}
+		v, err := strconv.Atoi(offPart)
+		if err != nil || v < 0 {
+			return 0, ErrBadRequest
+		}
+		return v, nil
+	}
+	v, err := strconv.Atoi(trimmed)
+	if err != nil || v < 0 {
+		return 0, ErrBadRequest
+	}
+	return v, nil
 }

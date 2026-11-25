@@ -2,16 +2,20 @@
 import type {
   AssetDetailResponse,
   AssetSummaryItem,
-  TrendCurveResponse
+  TrendCurveResponse,
+  TrendEventItem
 } from '@/api/types/trend'
 import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import { getAssetDetail, getAssetMembers, getTrendCurve } from '@/api/trend'
 import AssetRow from '@/components/finance/AssetRow.vue'
 import FinanceShell from '@/components/finance/FinanceShell.vue'
 import TrendTempBadge from '@/components/finance/TrendTempBadge.vue'
+import TrendEventsTimeline from '@/components/trend/TrendEventsTimeline.vue'
 import TrendLineCanvas from '@/components/trend/TrendLineCanvas.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace, isExpiredSnapshotError, isNotFoundError, isStaleCursorError, unwrapApiResponse } from '@/utils/asyncRace'
+import { buildFinanceUrl, decodeFinanceQuery, toApiCurrency, toDisplayCurrency } from '@/utils/financeRoute'
 import { formatDurationBadge, getTrendTempMeta } from '@/utils/trendDict'
 
 definePage({
@@ -26,32 +30,104 @@ definePage({
 const financeStore = useFinanceStore()
 const isDark = computed(() => financeStore.isDarkEffective)
 
-const assetId = ref<string>('gold')
+const assetId = ref<string>('')
 const scopeId = ref<string>('')
-const snapshotId = ref<string>('')
+const currency = ref<string>(financeStore.defaultCurrency || 'CNY')
+const benchmarkId = ref<string>('')
+const snapshotMode = ref<'latest' | 'fixed'>('latest')
+const requestedSnapshotId = ref<string>('')
+const resolvedSnapshotId = ref<string>('')
 const selectedRange = ref<string>(financeStore.defaultRange || '1Y')
+const customStartDate = ref<string>('')
+const customEndDate = ref<string>('')
 
 const loading = ref<boolean>(true)
 const chartLoading = ref<boolean>(false)
 const errorMsg = ref<string>('')
+const isExpiredSnapshot = ref<boolean>(false)
+const isUnknownAsset = ref<boolean>(false)
 
 const detail = ref<AssetDetailResponse | null>(null)
 const curve = ref<TrendCurveResponse | null>(null)
 const members = ref<AssetSummaryItem[]>([])
+const memberNextCursor = ref<string | null>(null)
+const memberTotal = ref<number>(0)
+const loadingMoreMembers = ref<boolean>(false)
+const membersLoadError = ref<string>('')
 const memberSortOrder = ref<'desc' | 'asc'>('desc')
+
+const detailRace = createAsyncRace()
+const curveRace = createAsyncRace()
+const membersRace = createAsyncRace()
+
+onUnmounted(() => {
+  detailRace.invalidate()
+  curveRace.invalidate()
+  membersRace.invalidate()
+})
 
 const asset = computed(() => detail.value?.asset || null)
 const isFav = computed(() => financeStore.isAssetFavorite(assetId.value))
 const isHomePool = computed(() => financeStore.defaultHomePool === assetId.value)
 const isStale = computed(() => detail.value?.snapshot?.status === 'stale' || detail.value?.snapshot?.status === 'degraded')
 
+const activeSnapshotId = computed(() => {
+  if (snapshotMode.value === 'fixed')
+    return requestedSnapshotId.value || resolvedSnapshotId.value
+  return resolvedSnapshotId.value
+})
+
+const sourcePoolName = computed(() => {
+  if (asset.value?.metrics?.strength?.scope_label)
+    return asset.value.metrics.strength.scope_label
+  if (detail.value?.breadcrumbs?.length)
+    return detail.value.breadcrumbs[0]?.name || scopeId.value
+  return scopeId.value || '全市场观察池'
+})
+
+const strengthRankText = computed(() => {
+  const st = asset.value?.metrics?.strength
+  if (!st || st.rank === null || st.rank === undefined || !st.valid_count)
+    return '—'
+  return `第 ${st.rank} / ${st.valid_count} 名`
+})
+
+const confirmedDateText = computed(() => {
+  const m = asset.value?.metrics
+  if (!m)
+    return ''
+  if (m.confirmed_at && m.duration_trading_days)
+    return `确认于 ${m.confirmed_at} · 持续 ${m.duration_trading_days} 交易日`
+  if (m.confirmed_at)
+    return `确认于 ${m.confirmed_at}`
+  if (m.started_at && m.confirmation === 'forming')
+    return `形成于 ${m.started_at}`
+  return ''
+})
+
 const rangeOptions = [
+  { key: '1M', label: '近1月' },
   { key: '3M', label: '近3月' },
   { key: '6M', label: '近6月' },
   { key: '1Y', label: '近1年' },
   { key: '3Y', label: '近3年' },
   { key: 'ALL', label: '全部' }
 ]
+
+function isRangeDisabled (r: string): boolean {
+  const list = detail.value?.range_availability
+  if (!list?.length)
+    return false
+  const found = list.find(it => it.range === r)
+  return found
+? !found.available
+: false
+}
+
+function getRangeReason (r: string): string {
+  const found = detail.value?.range_availability?.find(it => it.range === r)
+  return found?.reason || ''
+}
 
 const tempMeta = computed(() => getTrendTempMeta(asset.value?.metrics.temperature))
 
@@ -171,97 +247,203 @@ const previewSeries = computed(() => {
 })
 
 async function fetchCurve () {
+  if (!assetId.value)
+    return
+  const token = curveRace.next()
   chartLoading.value = true
   try {
     const res = await getTrendCurve(assetId.value, {
       range: selectedRange.value,
-      currency: financeStore.defaultCurrency,
-      benchmark_id: detail.value?.benchmark_id || undefined,
-      snapshot_id: snapshotId.value || undefined
+      currency: toApiCurrency(currency.value),
+      benchmark_id: benchmarkId.value || detail.value?.benchmark_id || undefined,
+      snapshot_id: activeSnapshotId.value || undefined,
+      start_date: customStartDate.value || undefined,
+      end_date: customEndDate.value || undefined
     })
-    curve.value = res?.data || null
+    if (!curveRace.isLatest(token))
+      return
+    curve.value = unwrapApiResponse(res, '趋势曲线加载失败')
   }
   catch {
+    if (!curveRace.isLatest(token))
+      return
     curve.value = null
   }
   finally {
-    chartLoading.value = false
+    if (curveRace.isLatest(token))
+      chartLoading.value = false
   }
 }
 
-async function fetchAll () {
-  loading.value = true
-  errorMsg.value = ''
+async function fetchMembers (append = false) {
+  if (!detail.value?.asset.has_members)
+    return
+  const token = membersRace.next()
+  if (append)
+    loadingMoreMembers.value = true
+  membersLoadError.value = ''
   try {
-    const res = await getAssetDetail(assetId.value, {
-      scope_id: scopeId.value || undefined,
-      currency: financeStore.defaultCurrency,
-      snapshot_id: snapshotId.value || undefined
+    const res = await getAssetMembers(assetId.value, {
+      scope_id: scopeId.value || assetId.value,
+      sort: 'strength',
+      order: memberSortOrder.value,
+      cursor: append
+? (memberNextCursor.value || undefined)
+: undefined,
+      limit: 30,
+      currency: toApiCurrency(currency.value),
+      snapshot_id: activeSnapshotId.value || undefined
     })
-    const detailData = res?.data || null
-    detail.value = detailData
-    if (!detailData) {
-      errorMsg.value = '资产详情响应为空'
+    if (!membersRace.isLatest(token))
       return
-    }
-    if (detailData.asset.has_members) {
-      const memRes = await getAssetMembers(assetId.value, {
-        scope_id: scopeId.value || assetId.value,
-        sort: 'strength',
-        order: memberSortOrder.value,
-        limit: 30,
-        currency: financeStore.defaultCurrency
-      }).catch(() => null)
-      members.value = memRes?.data?.items || []
+    const memData = unwrapApiResponse(res, '成员列表加载失败')
+    members.value = append
+      ? [
+...members.value,
+...memData.items
+]
+      : memData.items
+    memberNextCursor.value = memData.next_cursor
+    memberTotal.value = memData.matched_total ?? memData.total
+  }
+  catch (err: any) {
+    if (!membersRace.isLatest(token))
+      return
+    if (append) {
+      membersLoadError.value = isStaleCursorError(err)
+        ? '快照已更新，请下拉刷新列表'
+        : (err?.message || '继续加载失败，可重试')
     }
     else {
       members.value = []
+      membersLoadError.value = err?.message || '成员加载失败'
+    }
+  }
+  finally {
+    if (membersRace.isLatest(token))
+      loadingMoreMembers.value = false
+  }
+}
+
+async function fetchAll (forceLatest = false) {
+  if (!assetId.value)
+    return
+  const token = detailRace.next()
+  if (forceLatest && snapshotMode.value === 'latest')
+    resolvedSnapshotId.value = ''
+  loading.value = true
+  errorMsg.value = ''
+  isExpiredSnapshot.value = false
+  isUnknownAsset.value = false
+  try {
+    const reqSnap = snapshotMode.value === 'fixed'
+? requestedSnapshotId.value
+: ''
+    const res = await getAssetDetail(assetId.value, {
+      scope_id: scopeId.value || undefined,
+      currency: toApiCurrency(currency.value),
+      snapshot_id: reqSnap || undefined
+    })
+    if (!detailRace.isLatest(token))
+      return
+    const detailData = unwrapApiResponse(res, '资产详情响应为空')
+    detail.value = detailData
+    if (detailData.snapshot?.snapshot_id)
+      resolvedSnapshotId.value = detailData.snapshot.snapshot_id
+    if (detailData.benchmark_id && !benchmarkId.value)
+      benchmarkId.value = detailData.benchmark_id
+    if (detailData.available_ranges?.length && !detailData.available_ranges.includes(selectedRange.value)) {
+      const fallback = detailData.available_ranges.includes('ALL')
+        ? 'ALL'
+        : detailData.available_ranges[detailData.available_ranges.length - 1]
+      if (fallback)
+        selectedRange.value = fallback
+    }
+
+    if (detailData.asset.has_members) {
+      await fetchMembers(false)
+    }
+    else {
+      members.value = []
+      memberNextCursor.value = null
+      memberTotal.value = 0
     }
     await fetchCurve()
   }
   catch (err: any) {
-    errorMsg.value = err?.message || '资产详情加载失败'
+    if (!detailRace.isLatest(token))
+      return
+    isExpiredSnapshot.value = isExpiredSnapshotError(err)
+    isUnknownAsset.value = isNotFoundError(err)
+    errorMsg.value = isUnknownAsset.value
+      ? `未知标的「${assetId.value}」，请返回重选`
+      : (err?.message || '资产详情加载失败')
   }
   finally {
-    loading.value = false
-    uni.stopPullDownRefresh()
+    if (detailRace.isLatest(token)) {
+      loading.value = false
+      uni.stopPullDownRefresh()
+    }
   }
 }
 
 onLoad((query: any) => {
-  if (query?.id)
-    assetId.value = decodeURIComponent(query.id)
-  if (query?.pool_id)
-    scopeId.value = decodeURIComponent(query.pool_id)
-  if (query?.snapshot_id)
-    snapshotId.value = decodeURIComponent(query.snapshot_id)
-  fetchAll()
+  const parsed = decodeFinanceQuery(query, undefined, {
+    defaultHomePool: financeStore.defaultHomePool,
+    defaultCurrency: financeStore.defaultCurrency,
+    defaultRange: financeStore.defaultRange
+  })
+  assetId.value = parsed.asset_id
+  scopeId.value = parsed.scope_id
+  currency.value = toDisplayCurrency(parsed.currency)
+  selectedRange.value = parsed.range
+  benchmarkId.value = parsed.benchmark_id
+  snapshotMode.value = parsed.snapshot_mode
+  requestedSnapshotId.value = parsed.snapshot_id
+  resolvedSnapshotId.value = parsed.snapshot_id
+  customStartDate.value = parsed.start_date || ''
+  customEndDate.value = parsed.end_date || ''
+  fetchAll(false)
 })
 
 onPullDownRefresh(() => {
-  fetchAll()
+  fetchAll(true)
 })
 
+function switchToLatestSnapshot () {
+  snapshotMode.value = 'latest'
+  requestedSnapshotId.value = ''
+  resolvedSnapshotId.value = ''
+  fetchAll(true)
+}
+
+function goBackOrReselect () {
+  uni.navigateBack({
+    fail: () => {
+      uni.redirectTo({ url: '/pages-sub/finance/index' })
+    }
+  })
+}
+
 function switchRange (r: string) {
-  if (selectedRange.value === r)
+  if (isRangeDisabled(r)) {
+    uni.showToast({ title: getRangeReason(r) || `历史不足 ${r}`, icon: 'none' })
     return
+  }
+  if (selectedRange.value === r && !customStartDate.value)
+    return
+  customStartDate.value = ''
+  customEndDate.value = ''
   selectedRange.value = r
   fetchCurve()
 }
 
 async function toggleMemberSort () {
   memberSortOrder.value = memberSortOrder.value === 'desc'
-? 'asc'
-: 'desc'
-  const memRes = await getAssetMembers(assetId.value, {
-    scope_id: scopeId.value || assetId.value,
-    sort: 'strength',
-    order: memberSortOrder.value,
-    limit: 30,
-    currency: financeStore.defaultCurrency
-  }).catch(() => null)
-  if (memRes?.data)
-    members.value = memRes.data.items
+    ? 'asc'
+    : 'desc'
+  memberNextCursor.value = null
+  await fetchMembers(false)
 }
 
 function handleToggleFavorite (id: string) {
@@ -283,26 +465,94 @@ function setAsHomePool () {
 }
 
 function openWorkbench (chart = 'curve') {
+  const supported = detail.value?.available_charts || []
+  const targetChart = supported.includes(chart as any)
+? chart
+: (supported[0] || 'curve')
   uni.navigateTo({
-    url: `/pages-sub/divergence/index?id=${encodeURIComponent(assetId.value)}&chart=${chart}`
+    url: buildFinanceUrl('/pages-sub/divergence/index', {
+      asset_id: assetId.value,
+      scope_id: scopeId.value,
+      currency: currency.value as any,
+      range: selectedRange.value as any,
+      chart: targetChart as any,
+      benchmark_id: benchmarkId.value || detail.value?.benchmark_id || '',
+      snapshot_mode: activeSnapshotId.value ? 'fixed' : snapshotMode.value,
+      snapshot_id: activeSnapshotId.value,
+      start_date: customStartDate.value,
+      end_date: customEndDate.value
+    })
   })
 }
 
 function openReport () {
+  if (!detail.value || errorMsg.value || isExpiredSnapshot.value) {
+    uni.showToast({ title: '数据未就绪，暂不可导出报告', icon: 'none' })
+    return
+  }
+  const supported = detail.value.available_charts || []
+  const targetChart = supported.includes('curve')
+? 'curve'
+: (supported[0] || 'curve')
   uni.navigateTo({
-    url: `/pages-sub/finance/report?id=${encodeURIComponent(assetId.value)}&chart=curve`
+    url: buildFinanceUrl('/pages-sub/finance/report', {
+      asset_id: assetId.value,
+      scope_id: scopeId.value,
+      currency: currency.value as any,
+      range: selectedRange.value as any,
+      chart: targetChart as any,
+      benchmark_id: benchmarkId.value || detail.value?.benchmark_id || '',
+      snapshot_mode: activeSnapshotId.value ? 'fixed' : snapshotMode.value,
+      snapshot_id: activeSnapshotId.value
+    })
   })
 }
 
 function openMemberDetail (item: AssetSummaryItem) {
   uni.navigateTo({
-    url: `/pages-sub/finance/asset?id=${encodeURIComponent(item.asset_id)}&pool_id=${encodeURIComponent(assetId.value)}`
+    url: buildFinanceUrl('/pages-sub/finance/asset', {
+      asset_id: item.asset_id,
+      scope_id: scopeId.value || assetId.value,
+      currency: currency.value as any,
+      range: selectedRange.value as any,
+      snapshot_mode: activeSnapshotId.value ? 'fixed' : snapshotMode.value,
+      snapshot_id: activeSnapshotId.value
+    })
   })
 }
 
 function openBreadcrumb (id: string) {
   uni.navigateTo({
-    url: `/pages-sub/finance/index?category_id=${encodeURIComponent(id)}`
+    url: buildFinanceUrl('/pages-sub/finance/index', {
+      scope_id: id,
+      currency: currency.value as any
+    })
+  })
+}
+
+function handleSelectTrendEvent (ev: TrendEventItem) {
+  const endDate = ev.as_of || ''
+  let startDate = ''
+  if (endDate) {
+    const dt = new Date(`${endDate}T00:00:00Z`)
+    if (!Number.isNaN(dt.getTime())) {
+      dt.setUTCMonth(dt.getUTCMonth() - 3)
+      startDate = dt.toISOString().slice(0, 10)
+    }
+  }
+  uni.navigateTo({
+    url: buildFinanceUrl('/pages-sub/divergence/index', {
+      asset_id: assetId.value,
+      scope_id: scopeId.value,
+      currency: currency.value as any,
+      range: selectedRange.value as any,
+      chart: 'curve',
+      benchmark_id: benchmarkId.value || detail.value?.benchmark_id || '',
+      snapshot_mode: activeSnapshotId.value ? 'fixed' : snapshotMode.value,
+      snapshot_id: activeSnapshotId.value,
+      start_date: startDate,
+      end_date: endDate
+    })
   })
 }
 </script>
@@ -312,6 +562,12 @@ function openBreadcrumb (id: string) {
     :title="asset?.name || '资产详情'"
     active-tab="overview"
     :asset-id="assetId"
+    :scope-id="scopeId"
+    :currency="currency"
+    :range="selectedRange"
+    :snapshot-mode="snapshotMode"
+    :snapshot-id="activeSnapshotId"
+    :show-bottom-nav="false"
   >
     <view v-if="loading" class="px-3 py-4 space-y-3">
       <view
@@ -323,16 +579,36 @@ function openBreadcrumb (id: string) {
     </view>
 
     <view v-else-if="errorMsg" class="px-4 py-12 text-center space-y-3">
-      <text class="text-[15px] font-bold block text-[#F05A50]">无法获取资产详情</text>
+      <text class="text-[15px] font-bold block text-[#F05A50]">
+        {{ isExpiredSnapshot ? '快照已过期' : (isUnknownAsset ? '未找到对应标的' : '无法获取资产详情') }}
+      </text>
       <text class="text-[12px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
         {{ errorMsg }}
       </text>
-      <view
-        class="inline-flex items-center justify-center px-5 min-h-[44px] rounded-xl border text-[13px] font-bold"
-        :class="isDark ? 'border-[#E5B352] text-[#E5B352]' : 'border-[#8A641F] text-[#8A641F]'"
-        @tap="fetchAll"
-      >
-        重试
+      <view class="flex items-center justify-center gap-2 pt-1">
+        <view
+          v-if="isExpiredSnapshot"
+          class="inline-flex items-center justify-center px-5 min-h-[44px] rounded-xl text-[13px] font-bold"
+          :class="isDark ? 'bg-[#E5B352] text-[#090C0F]' : 'bg-[#8A641F] text-white'"
+          @tap="switchToLatestSnapshot"
+        >
+          切回最新快照
+        </view>
+        <view
+          v-if="!isUnknownAsset"
+          class="inline-flex items-center justify-center px-5 min-h-[44px] rounded-xl border text-[13px] font-bold"
+          :class="isDark ? 'border-[#E5B352] text-[#E5B352]' : 'border-[#8A641F] text-[#8A641F]'"
+          @tap="fetchAll(false)"
+        >
+          重试
+        </view>
+        <view
+          class="inline-flex items-center justify-center px-5 min-h-[44px] rounded-xl border text-[13px]"
+          :class="isDark ? 'border-[#29313A] text-[#A9B3BD]' : 'border-[#DCDDD8] text-[#515F6A]'"
+          @tap="goBackOrReselect"
+        >
+          返回重选
+        </view>
       </view>
     </view>
 
@@ -381,24 +657,31 @@ function openBreadcrumb (id: string) {
         </view>
       </view>
 
-      <!-- 快照日期与状态标签 + 设主页 -->
-      <view class="flex items-center justify-between">
-        <view class="flex items-center gap-1.5">
+      <!-- 快照日期与状态标签 + 来自观察池 + 设主页 -->
+      <view class="flex items-center justify-between gap-2">
+        <view class="flex items-center gap-1.5 min-w-0">
           <view
-            class="w-2 h-2 rounded-full"
+            class="w-2 h-2 rounded-full shrink-0"
             :class="isStale ? 'bg-[#F05A50]' : (isDark ? 'bg-[#E5B352]' : 'bg-[#8A641F]')"
           />
-          <text class="text-[11px] font-mono cc-tabular" :class="isDark ? 'text-[#A9B3BD]' : 'text-[#515F6A]'">
-            快照 · {{ detail?.snapshot.as_of || asset.as_of || '—' }}
+          <text class="text-[11px] font-mono cc-tabular truncate" :class="isDark ? 'text-[#A9B3BD]' : 'text-[#515F6A]'">
+            快照 · {{ detail?.snapshot.as_of || asset.as_of || '—' }} · 来自 {{ sourcePoolName }}
           </text>
         </view>
         <text
-          class="px-2 py-0.5 rounded border text-[11px]"
+          class="px-2 py-0.5 rounded border text-[11px] shrink-0"
           :class="isDark ? 'border-[#E5B352]/35 text-[#E5B352] bg-[#E5B352]/10' : 'border-[#8A641F]/35 text-[#8A641F] bg-[#8A641F]/10'"
         >
-          非实时数据
+          {{ detail?.snapshot?.is_current === false ? '历史快照' : '非实时数据' }}
         </text>
       </view>
+      <text
+        v-if="confirmedDateText"
+        class="text-[11px] font-mono cc-tabular block"
+        :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'"
+      >
+        {{ confirmedDateText }}
+      </text>
 
       <view class="flex items-center justify-between gap-2">
         <view class="flex flex-wrap items-center gap-1.5">
@@ -480,8 +763,8 @@ function openBreadcrumb (id: string) {
           <text class="text-[20px] font-bold font-mono cc-tabular block mt-1 leading-tight">
             {{ asset.metrics.strength?.score !== null && asset.metrics.strength?.score !== undefined ? Math.round(asset.metrics.strength.score) : '—' }}
           </text>
-          <text class="text-[11px] block mt-0.5 truncate" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
-            {{ asset.metrics.strength?.scope_label || '观察池内' }}
+          <text class="text-[11px] block mt-0.5 truncate font-mono cc-tabular" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
+            {{ strengthRankText }}
           </text>
         </view>
 
@@ -526,6 +809,7 @@ function openBreadcrumb (id: string) {
           {{ rangeOptions.find(r => r.key === selectedRange)?.label || '近1年' }}累计收益
         </text>
         <view
+          v-if="detail?.available_charts?.length"
           class="min-h-[36px] flex items-center gap-0.5 active:opacity-70"
           @tap="openWorkbench('curve')"
         >
@@ -594,50 +878,46 @@ function openBreadcrumb (id: string) {
         </view>
       </view>
 
-      <!-- 区间选择器 -->
-      <view class="grid grid-cols-5 gap-1.5">
-        <view
-          v-for="r in rangeOptions"
-          :key="r.key"
-          class="min-h-[36px] rounded-lg border flex items-center justify-center text-[12px]"
-          :class="selectedRange === r.key
-            ? (isDark ? 'bg-[#E5B352]/16 border-[#E5B352] text-[#E5B352] font-bold' : 'bg-[#8A641F]/12 border-[#8A641F] text-[#8A641F] font-bold')
-            : (isDark ? 'bg-[#12161B] border-[#29313A] text-[#A9B3BD]' : 'bg-[#FFFFFF] border-[#DCDDD8] text-[#515F6A]')"
-          @tap="switchRange(r.key)"
-        >
-          {{ r.label }}
-        </view>
-      </view>
-
-      <!-- 近期事件 -->
-      <view
-        v-if="detail?.recent_events?.length"
-        class="rounded-xl border p-3 space-y-2"
-        :class="isDark ? 'bg-[#12161B] border-[#29313A]' : 'bg-[#FFFFFF] border-[#DCDDD8]'"
-      >
-        <text class="text-[14px] font-bold block">近期趋势事件</text>
-        <view
-          v-for="ev in detail.recent_events"
-          :key="ev.event_id"
-          class="flex items-center justify-between py-1.5 border-t text-[12px]"
-          :class="isDark ? 'border-[#29313A]/70' : 'border-[#DCDDD8]'"
-        >
-          <view>
-            <text class="font-medium">{{ ev.event_type }}</text>
-            <text class="ml-2" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
-              {{ ev.old_value }} → {{ ev.new_value }}
-            </text>
+      <!-- 区间选择器（不足区间禁用并标注起始日） -->
+      <view class="space-y-1.5">
+        <view class="grid grid-cols-6 gap-1.5">
+          <view
+            v-for="r in rangeOptions"
+            :key="r.key"
+            class="min-h-[36px] rounded-lg border flex items-center justify-center text-[11px]"
+            :class="isRangeDisabled(r.key)
+              ? (isDark ? 'bg-[#12161B]/40 border-[#29313A]/40 text-[#64707C] opacity-45' : 'bg-[#EDECE6]/50 border-[#DCDDD8]/60 text-[#8D99A4] opacity-50')
+              : selectedRange === r.key
+                ? (isDark ? 'bg-[#E5B352]/16 border-[#E5B352] text-[#E5B352] font-bold' : 'bg-[#8A641F]/12 border-[#8A641F] text-[#8A641F] font-bold')
+                : (isDark ? 'bg-[#12161B] border-[#29313A] text-[#A9B3BD]' : 'bg-[#FFFFFF] border-[#DCDDD8] text-[#515F6A]')"
+            @tap="switchRange(r.key)"
+          >
+            {{ r.label }}
           </view>
-          <text class="font-mono cc-tabular text-[11px]" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">
-            {{ ev.as_of }}
-          </text>
         </view>
+        <text
+          v-if="detail?.earliest_date"
+          class="text-[11px] font-mono cc-tabular block"
+          :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'"
+        >
+          可用历史起始日：{{ detail.earliest_date }}（不足区间的选项已禁用）
+        </text>
       </view>
 
-      <!-- 成员表（仅父级/分类节点展示，叶节点严格隐藏） -->
+      <!-- 近期趋势事件（支持分页、筛选与点击回溯区间曲线） -->
+      <TrendEventsTimeline
+        :asset-id="assetId"
+        :snapshot-id="activeSnapshotId"
+        :initial-events="detail?.recent_events || []"
+        @select-event="handleSelectTrendEvent"
+      />
+
+      <!-- 成员表（仅父级/分类节点展示，叶节点严格隐藏，首次30条支持继续加载与失败重试） -->
       <view v-if="asset.has_members" class="space-y-2 pt-1">
         <view class="flex items-center justify-between">
-          <text class="text-[16px] font-bold">成员品种 ({{ members.length }})</text>
+          <text class="text-[16px] font-bold">
+            成员品种 ({{ members.length }}{{ memberTotal > members.length ? `/${memberTotal}` : '' }})
+          </text>
           <view
             class="px-2.5 py-1 rounded-lg border text-[12px]"
             :class="isDark ? 'bg-[#12161B] border-[#29313A] text-[#E5B352]' : 'bg-[#FFFFFF] border-[#DCDDD8] text-[#8A641F]'"
@@ -651,7 +931,7 @@ function openBreadcrumb (id: string) {
           class="rounded-xl border overflow-hidden"
           :class="isDark ? 'bg-[#12161B] border-[#29313A]' : 'bg-[#FFFFFF] border-[#DCDDD8]'"
         >
-          <view v-if="!members.length" class="p-6 text-center">
+          <view v-if="!members.length && !membersLoadError" class="p-6 text-center">
             <text class="text-[12px]" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">暂无下属成员数据</text>
           </view>
           <AssetRow
@@ -661,6 +941,26 @@ function openBreadcrumb (id: string) {
             @select="openMemberDetail"
             @toggle-favorite="handleToggleFavorite"
           />
+        </view>
+
+        <view v-if="membersLoadError" class="rounded-xl border border-[#F05A50]/40 bg-[#F05A50]/10 px-3 py-2.5 flex items-center justify-between gap-2">
+          <text class="text-[12px] text-[#F05A50] flex-1">{{ membersLoadError }}</text>
+          <text
+            class="px-3 py-1 rounded-lg border border-[#F05A50] text-[12px] font-bold text-[#F05A50] shrink-0"
+            @tap="fetchMembers(members.length > 0)"
+          >
+            重试
+          </text>
+        </view>
+
+        <view v-if="memberNextCursor" class="pt-1 flex justify-center">
+          <view
+            class="px-5 min-h-[44px] rounded-xl border flex items-center justify-center text-[13px]"
+            :class="isDark ? 'bg-[#12161B] border-[#29313A] text-[#A9B3BD]' : 'bg-[#FFFFFF] border-[#DCDDD8] text-[#515F6A]'"
+            @tap="!loadingMoreMembers && fetchMembers(true)"
+          >
+            {{ loadingMoreMembers ? '加载中...' : `继续加载 (${members.length}/${memberTotal})` }}
+          </view>
         </view>
       </view>
     </view>

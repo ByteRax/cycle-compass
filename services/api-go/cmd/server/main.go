@@ -63,8 +63,9 @@ func main() {
 		if err := trendSvc.BootstrapAndComputeSnapshot(warmupCtx, true); err != nil {
 			log.Printf("[CycleCompass-Go] V4 在线快照更新警告: %v", err)
 		}
-		log.Println("[CycleCompass-Go] 后台预热完成，启动行情主动刷新器(2.5s)...")
+		log.Println("[CycleCompass-Go] 后台预热完成，启动行情主动刷新器与盘后快照调度...")
 		onlineProvider.StartAutoRefresh(rootCtx, service.DefaultWatchlist, 2500*time.Millisecond)
+		trendSvc.StartPostCloseScheduler(rootCtx, 15*time.Minute)
 	}()
 
 	// 5. 初始化 Handler 层

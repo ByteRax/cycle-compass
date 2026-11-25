@@ -1,11 +1,13 @@
 <script lang="ts" setup>
 import type { AnnualTrendResponse } from '@/api/types/trend'
 import type { TrendLineSeries } from '@/components/trend/TrendLineCanvas.vue'
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { getTrendAnnual } from '@/api/trend'
 import TrendLineCanvas from '@/components/trend/TrendLineCanvas.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace, unwrapApiResponse } from '@/utils/asyncRace'
 import { deterministicAssetColor } from '@/utils/chartGeometry'
+import { toApiCurrency } from '@/utils/financeRoute'
 
 const props = withDefaults(defineProps<{
   assetId: string
@@ -57,25 +59,39 @@ function getGainColor(val: number | null | undefined): string {
 : (isDark.value ? '#FF736A' : '#B93842')
 }
 
+const race = createAsyncRace()
+
+onUnmounted(() => {
+  race.invalidate()
+})
+
 async function fetchAnnualData() {
   if (!props.assetId)
     return
+  const token = race.next()
   loading.value = true
   errorMsg.value = ''
   try {
     const res = await getTrendAnnual(props.assetId, {
-      currency: props.currency || undefined,
+      currency: props.currency
+? toApiCurrency(props.currency)
+: undefined,
       snapshot_id: props.snapshotId || undefined
     })
-    annualData.value = res.data ?? null
+    if (!race.isLatest(token))
+      return
+    annualData.value = unwrapApiResponse(res, '年度同期走势加载失败')
     focusedYear.value = null
     hiddenYears.value = []
   }
   catch (err: any) {
+    if (!race.isLatest(token))
+      return
     errorMsg.value = err?.message || '年度同期走势加载失败'
   }
   finally {
-    loading.value = false
+    if (race.isLatest(token))
+      loading.value = false
   }
 }
 

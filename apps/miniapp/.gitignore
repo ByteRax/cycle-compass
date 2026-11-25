@@ -35,8 +35,10 @@ env/.env.*.local
 /.omc/
 /.claude/worktrees/
 
-# Mini program private key
+# Mini program private key and devtools configs
 private*.key
 private.*.key
 private.key
 *.key
+project.config.json
+project.private.config.json

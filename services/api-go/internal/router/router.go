@@ -128,6 +128,7 @@ func Setup(p RouterParams) http.Handler {
 			api.Route("/assets", func(a chi.Router) {
 				getOrHead(a, "/catalog", p.Trend.GetCatalog)
 				getOrHead(a, "/universes", p.Trend.GetUniverses)
+				getOrHead(a, "/enums", p.Trend.GetEnums)
 				getOrHead(a, "/search", p.Trend.SearchAssets)
 				getOrHead(a, "/{id}", p.Trend.GetAssetDetail)
 				getOrHead(a, "/{id}/members", p.Trend.GetAssetMembers)
@@ -145,6 +146,7 @@ func Setup(p RouterParams) http.Handler {
 				getOrHead(tr, "/{id}/distribution", p.Trend.GetTrendDistribution)
 				getOrHead(tr, "/{id}/tier", p.Trend.GetTrendTier)
 				getOrHead(tr, "/{id}/events", p.Trend.GetTrendEvents)
+				getOrHead(tr, "/{id}/matrix", p.Trend.GetPeriodMatrix)
 			})
 		}
 	})

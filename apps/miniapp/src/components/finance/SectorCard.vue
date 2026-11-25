@@ -1,36 +1,42 @@
 <script lang="ts" setup>
 import { computed } from 'vue'
 
+import { buildFinanceUrl } from '@/utils/financeRoute'
+
 defineOptions({
   options: {
     virtualHost: true
   }
 })
 
-interface Props {
-  icon?: string
-  name: string
-  changePercent: number
-  price?: number | string
-  category?: string
-  typeTag?: string
-  stage?: string
-  prosperityScore?: number
-}
-
 const props = withDefaults(defineProps<Props>(), {
   icon: '',
+  sectorId: '',
   changePercent: 0,
   price: undefined,
   category: '',
   typeTag: '',
   stage: '',
-  prosperityScore: undefined
+  prosperityScore: undefined,
+  disableAutoNav: false
 })
 
 const emit = defineEmits<{
   (e: 'click'): void
 }>()
+
+interface Props {
+  icon?: string
+  sectorId?: string
+  name: string
+  changePercent?: number
+  price?: number | string
+  category?: string
+  typeTag?: string
+  stage?: string
+  prosperityScore?: number
+  disableAutoNav?: boolean
+}
 
 const isUp = computed(() => props.changePercent > 0)
 const isDown = computed(() => props.changePercent < 0)
@@ -42,8 +48,11 @@ const displayPrice = computed(() => {
   if (typeof props.price === 'string' && isNaN(Number(props.price))) {
     return props.price
   }
-  const num = typeof props.price === 'number' ? props.price : parseFloat(props.price as string)
-  if (isNaN(num)) return ''
+  const num = typeof props.price === 'number'
+? props.price
+: parseFloat(props.price as string)
+  if (isNaN(num)) 
+return ''
   if (num > 0 && num < 0.1) {
     return num.toFixed(3)
   }
@@ -51,22 +60,33 @@ const displayPrice = computed(() => {
 })
 
 const formattedPercent = computed(() => {
-  const sign = props.changePercent > 0 ? '+' : ''
+  const sign = props.changePercent > 0
+? '+'
+: ''
   return `${sign}${props.changePercent.toFixed(2)}%`
 })
-const handleClick = () => {
+function handleClick () {
   emit('click')
-  let targetId = 'a_shares'
+  if (props.disableAutoNav)
+    return
+  if (props.sectorId) {
+    uni.navigateTo({
+      url: buildFinanceUrl('/pages-sub/finance/sector-detail', {
+        asset_id: `sector:${props.sectorId}`,
+        title: props.name
+      })
+    })
+    return
+  }
   const n = props.name || ''
-  if (n.includes('红利') || n.includes('煤炭') || n.includes('水电')) {
-    targetId = 'dividend_etf'
-  } else if (n.includes('ETF') || n.includes('300') || n.includes('500') || n.includes('恒生') || n.includes('标普') || n.includes('纳斯达克')) {
-    targetId = 'etf_macro'
-  } else {
-    targetId = 'a_shares'
+  if (n.includes('红利')) {
+    uni.navigateTo({
+      url: buildFinanceUrl('/pages-sub/finance/asset', { asset_id: 'ETF.CN.515100', scope_id: 'universe_macro' })
+    })
+    return
   }
   uni.navigateTo({
-    url: `/pages-sub/divergence/index?id=${targetId}`
+    url: buildFinanceUrl('/pages-sub/finance/index', { scope_id: 'universe_a_sector' })
   })
 }
 </script>

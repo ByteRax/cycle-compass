@@ -17,10 +17,15 @@ export interface BacktestSummaryData {
   zone_distribution?: Record<string, number>
   total_rebuy_count?: number
   ledger_entries_count?: number
+  rule_version?: string
+  data_source?: string
+  execution_timing?: string
+  clip_reason?: string
 }
 
 interface Props {
   summary?: BacktestSummaryData
+  isSample?: boolean
   totalInvest?: number
   finalAsset?: number
   netProfit?: number
@@ -39,6 +44,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   summary: undefined,
+  isSample: false,
   totalInvest: undefined,
   finalAsset: undefined,
   netProfit: undefined,
@@ -63,11 +69,15 @@ const displayFinalAsset = computed(() =>
 )
 const displayNetProfit = computed(() => {
   const num = Number(props.summary?.net_profit ?? props.netProfit ?? 21016.47)
-  return `${num >= 0 ? '+' : ''}¥${num.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
+  return `${num >= 0
+? '+'
+: ''}¥${num.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
 })
 const displayReturnPct = computed(() => {
   const num = Number(props.summary?.total_return_pct ?? props.totalReturn ?? 12.74)
-  return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`
+  return `${num >= 0
+? '+'
+: ''}${num.toFixed(2)}%`
 })
 const displayXirr = computed(() => `${Number(props.summary?.xirr ?? props.xirr ?? 7.39).toFixed(2)}%`)
 const displayMaxDrawdown = computed(() => `-${Math.abs(Number(props.summary?.max_drawdown ?? props.maxDrawdown ?? 24.94)).toFixed(2)}%`)
@@ -90,12 +100,35 @@ const highPct = computed(() => ((highDays.value / totalDays.value) * 100).toFixe
   <view class="rounded-2xl bg-[#12161b] p-4 border border-white/[0.09] text-[#f1efea] space-y-3.5">
     <view class="flex items-center justify-between gap-2">
       <view>
-        <text class="text-sm font-bold text-[#f1efea] block">全历史回测实战成绩单</text>
+        <view class="flex items-center gap-1.5">
+          <text class="text-sm font-bold text-[#f1efea] block">
+            {{ isSample ? '历史回测参考样例' : '全历史回测实战成绩单' }}
+          </text>
+          <text
+            v-if="isSample"
+            class="text-[9px] px-1.5 py-0.5 rounded bg-[#e5b352]/20 text-[#e5b352] font-medium"
+          >
+            静态样例
+          </text>
+        </view>
         <text class="text-[11px] font-mono text-[#8d99a4] mt-0.5 block">{{ displayDateRange }}</text>
       </view>
       <view class="rounded-full bg-[#e5b352]/18 px-2.5 py-0.5 text-[11px] font-mono font-bold text-[#e5b352] shrink-0">
         {{ displayTradingDays }} 交易日
       </view>
+    </view>
+
+    <!-- 回测执行规则与截取原因说明 -->
+    <view
+      v-if="summary?.rule_version || summary?.execution_timing || summary?.data_source || summary?.clip_reason"
+      class="rounded-xl bg-[#181e25] border border-white/[0.06] px-3 py-2 text-[10px] text-[#8d99a4] space-y-1"
+    >
+      <view v-if="summary?.rule_version || summary?.execution_timing" class="flex items-center justify-between gap-2 flex-wrap">
+        <text v-if="summary?.rule_version" class="font-mono text-[#e5b352]">规则 {{ summary.rule_version }}</text>
+        <text v-if="summary?.execution_timing">{{ summary.execution_timing }}</text>
+      </view>
+      <text v-if="summary?.data_source" class="block">数据来源：{{ summary.data_source }}</text>
+      <text v-if="summary?.clip_reason" class="block text-[#e5b352]">区间说明：{{ summary.clip_reason }}</text>
     </view>
 
     <!-- 核心资产双卡 -->

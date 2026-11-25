@@ -19,10 +19,14 @@ type AccountEntity struct {
 }
 
 type PositionEntity struct {
-	Symbol    string
-	Name      string
-	Shares    float64
-	CostPrice float64
+	Symbol          string
+	SignalSymbol    string
+	Name            string
+	Shares          float64
+	CostPrice       float64
+	LastPrice       float64
+	LastPriceDate   string
+	LastPriceSource string
 }
 
 type SQLiteStore struct {
@@ -142,17 +146,17 @@ func (s *SQLiteStore) seedInitialData() error {
 		return err
 	}
 
-	// Positions
+	// Positions（分离真实交易 ETF 与信号指数，绝不用指数代码冒充 ETF 持仓）
 	_, err = tx.Exec(
-		"INSERT INTO positions (account_id, symbol, name, shares, cost_price) VALUES (?, ?, ?, ?, ?)",
-		"ACC_DEMO_001", "930955", "红利低波100(515100)", 12500.0, 1.12,
+		"INSERT INTO positions (account_id, symbol, signal_symbol, name, shares, cost_price, last_price, last_price_date, last_price_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"ACC_DEMO_001", "515100", "930955", "红利低波100ETF(515100)", 12500.0, 1.12, 1.136, "2026-11-09", "示范样本历史成交价",
 	)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(
-		"INSERT INTO positions (account_id, symbol, name, shares, cost_price) VALUES (?, ?, ?, ?, ?)",
-		"ACC_DEMO_001", "399673", "创业板50(159949)", 8000.0, 0.85,
+		"INSERT INTO positions (account_id, symbol, signal_symbol, name, shares, cost_price, last_price, last_price_date, last_price_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"ACC_DEMO_001", "159949", "399673", "创业板50ETF(159949)", 8000.0, 0.85, 0.85, "2026-11-09", "示范样本建仓参考价",
 	)
 	if err != nil {
 		return err
@@ -197,7 +201,10 @@ func (s *SQLiteStore) GetAccount(accountID string) (*AccountEntity, error) {
 }
 
 func (s *SQLiteStore) GetPositions(accountID string) ([]PositionEntity, error) {
-	rows, err := s.db.Query("SELECT symbol, name, shares, cost_price FROM positions WHERE account_id = ? ORDER BY id ASC", accountID)
+	rows, err := s.db.Query(
+		"SELECT symbol, signal_symbol, name, shares, cost_price, last_price, last_price_date, last_price_source FROM positions WHERE account_id = ? ORDER BY id ASC",
+		accountID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -206,12 +213,23 @@ func (s *SQLiteStore) GetPositions(accountID string) ([]PositionEntity, error) {
 	var list []PositionEntity
 	for rows.Next() {
 		var p PositionEntity
-		if err := rows.Scan(&p.Symbol, &p.Name, &p.Shares, &p.CostPrice); err != nil {
+		if err := rows.Scan(&p.Symbol, &p.SignalSymbol, &p.Name, &p.Shares, &p.CostPrice, &p.LastPrice, &p.LastPriceDate, &p.LastPriceSource); err != nil {
 			return nil, err
 		}
 		list = append(list, p)
 	}
 	return list, nil
+}
+
+func (s *SQLiteStore) UpdatePositionLastPrice(accountID, symbol string, price float64, priceDate, source string) error {
+	if price <= 0 {
+		return nil
+	}
+	_, err := s.db.Exec(
+		"UPDATE positions SET last_price = ?, last_price_date = ?, last_price_source = ? WHERE account_id = ? AND symbol = ?",
+		price, priceDate, source, accountID, symbol,
+	)
+	return err
 }
 
 func (s *SQLiteStore) GetTransactions(accountID string, limit int) ([]dto.LedgerEntry, error) {

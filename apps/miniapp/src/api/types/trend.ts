@@ -7,6 +7,7 @@ import type {
 } from '@/utils/trendDict'
 
 export type ChartType =
+  | 'matrix'
   | 'curve'
   | 'annual'
   | 'components'
@@ -37,6 +38,8 @@ export interface SnapshotMeta {
   computed_at: string
   algorithm_version: string
   currency: string
+  requested_currency?: string
+  effective_currency?: string
   scope_id: string
   scope_label: string
   candidate_count: number
@@ -44,6 +47,9 @@ export interface SnapshotMeta {
   coverage: number | null
   mode: 'latest_available' | 'aligned'
   status: SnapshotStatus
+  is_current?: boolean
+  is_expired?: boolean
+  requested_snapshot_id?: string
   source_dates: SourceDateMeta[]
   warnings: string[]
 }
@@ -97,6 +103,8 @@ export interface AssetSummaryItem {
   name: string
   short_name: string
   asset_type: 'index' | 'etf' | 'stock' | 'future' | 'bond' | 'fx' | 'category' | 'universe'
+  object_type?: 'asset' | 'universe' | 'category' | 'sector' | string
+  route_target?: 'asset_detail' | 'pool_overview' | 'sector_detail' | string
   measure_type: 'price' | 'nav' | 'yield_pct' | 'fx_rate' | 'index'
   unit: string
   currency: string
@@ -118,6 +126,19 @@ export interface AssetSummaryItem {
   feature_tags: string[]
 }
 
+export interface CatalogOverview {
+  right_count: number
+  left_count: number
+  forming_count?: number
+  other_count: number
+  uncovered_count?: number
+  valid_count: number
+  total_count: number
+  right_ratio_pct: number | null
+  left_ratio_pct: number | null
+  other_ratio_pct: number | null
+}
+
 export interface CatalogResponse {
   snapshot: SnapshotMeta
   universes: Array<{
@@ -134,16 +155,7 @@ export interface CatalogResponse {
     has_index: boolean
     index_asset_id: string | null
   }>
-  overview: {
-    right_count: number
-    left_count: number
-    other_count: number
-    valid_count: number
-    total_count: number
-    right_ratio_pct: number | null
-    left_ratio_pct: number | null
-    other_ratio_pct: number | null
-  }
+  overview: CatalogOverview
 }
 
 export interface MembersResponse {
@@ -153,6 +165,19 @@ export interface MembersResponse {
   items: AssetSummaryItem[]
   next_cursor: string | null
   total: number
+  pool_total?: number
+  valid_count?: number
+  matched_total?: number
+  overview?: CatalogOverview
+  available_markets?: string[]
+  sort_scope?: string
+}
+
+export interface RangeAvailabilityItem {
+  range: string
+  available: boolean
+  earliest_date?: string | null
+  reason?: string
 }
 
 export interface AssetDetailResponse {
@@ -161,7 +186,10 @@ export interface AssetDetailResponse {
   breadcrumbs: Array<{ id: string, name: string }>
   available_charts: ChartType[]
   available_ranges: string[]
+  range_availability?: RangeAvailabilityItem[]
+  earliest_date?: string | null
   available_currencies: string[]
+  currency_notes?: string[]
   benchmark_id: string | null
   benchmark_name: string | null
   period_changes: {
@@ -203,6 +231,10 @@ export interface TrendCurveResponse {
   snapshot: SnapshotMeta
   asset_id: string
   asset_name: string
+  requested_currency?: string
+  effective_currency?: string
+  fx_applied?: boolean
+  fx_pair?: string
   benchmark_id: string | null
   benchmark_name: string | null
   range: string
@@ -372,9 +404,66 @@ export interface TrendTierResponse {
   }>
 }
 
+export interface MatrixColumnDef {
+  key: string
+  label: string
+  period_type: 'calendar' | 'rolling'
+  sortable: boolean
+}
+
+export interface MatrixCell {
+  period_key: string
+  start_date: string | null
+  end_date: string | null
+  start_value: number | null
+  end_value: number | null
+  return_pct: number | null
+  bp_change?: number | null
+  display_unit: '%' | 'bp'
+  return_type: string
+  currency: string
+  fx_applied?: boolean
+  fx_pair?: string
+  start_fx?: number | null
+  end_fx?: number | null
+  quality_status: string
+  source_name: string
+  reason?: string
+}
+
+export interface MatrixRow {
+  asset: AssetSummaryItem
+  cells: Record<string, MatrixCell>
+}
+
+export interface PeriodMatrixResponse {
+  snapshot: SnapshotMeta
+  pool_id: string
+  pool_name: string
+  currency: string
+  cutoff_date: string
+  columns: MatrixColumnDef[]
+  groups: Array<{
+    group_name: string
+    rows: MatrixRow[]
+  }>
+  next_cursor: string | null
+  total: number
+  pool_total: number
+  valid_count: number
+  matched_total: number
+  overview?: CatalogOverview
+  available_markets: string[]
+  sort_scope: string
+  sort_field: string
+  sort_order: 'asc' | 'desc'
+}
+
 export interface ChartContext {
   asset_id: string
+  scope_id: string
   pool_id: string
+  snapshot_mode: 'latest' | 'fixed'
   snapshot_id: string
   chart: ChartType
   currency: string
@@ -386,6 +475,10 @@ export interface ChartContext {
   color_by: 'side' | 'temperature' | 'change'
   sort: string
   order: 'asc' | 'desc'
+  market?: string
+  asset_type?: string
+  status?: string
+  view_mode?: 'quotes' | 'matrix'
 }
 
 export interface DataStatusResponse {
@@ -416,4 +509,27 @@ export interface MethodologyResponse {
     rule: string
   }>
   disclaimers: string[]
+}
+
+export interface SearchAssetsResponse {
+  items: AssetSummaryItem[]
+  next_cursor: string | null
+  total: number
+  uncovered_count: number
+  uncovered_names?: string[]
+}
+
+export interface EnumOption {
+  key: string
+  label: string
+}
+
+export interface AssetEnumsResponse {
+  search_types: EnumOption[]
+  asset_types: EnumOption[]
+  sort_fields: EnumOption[]
+  dashboard_sorts: EnumOption[]
+  matrix_sorts: EnumOption[]
+  currencies: EnumOption[]
+  statuses: EnumOption[]
 }

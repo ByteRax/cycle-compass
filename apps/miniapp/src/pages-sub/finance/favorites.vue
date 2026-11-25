@@ -2,10 +2,12 @@
 import type { AssetSummaryItem } from '@/api/types/trend'
 import type { FavoriteChartItem } from '@/stores/finance'
 import { onShow } from '@dcloudio/uni-app'
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import { getAssetDetail, getAssetUniverses } from '@/api/trend'
 import CSafeArea from '@/components/ui/CSafeArea.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace } from '@/utils/asyncRace'
+import { buildFinanceUrl, toApiCurrency } from '@/utils/financeRoute'
 import { formatDurationBadge, getTrendTempMeta } from '@/utils/trendDict'
 
 definePage({
@@ -32,11 +34,12 @@ const newGroupName = ref('')
 const showGroupInput = ref(false)
 const activeGroup = ref<string>('all')
 
-const defaultPoolOptions = ref<Array<{ id: string, name: string, description: string }>>([
-  { id: 'universe_macro', name: '大类资产', description: '全球宏观与核心资产观察池' },
-  { id: 'universe_etf', name: 'ETF基金', description: '高流动性宽基与行业主题 ETF' },
-  { id: 'universe_a_shares', name: 'A股行业', description: '申万/中信一级行业趋势聚合' }
-])
+const defaultPoolOptions = ref<Array<{ id: string, name: string, description: string }>>([])
+const favRace = createAsyncRace()
+
+onUnmounted(() => {
+  favRace.invalidate()
+})
 
 const groupNames = computed(() => Object.keys(financeStore.favoriteAssetGroups))
 
@@ -55,19 +58,25 @@ const allSelected = computed(() => {
 async function loadFavoriteDetails() {
   const ids = financeStore.favoriteAssetIds
   if (ids.length === 0) {
+    favRace.invalidate()
     assetDetailsMap.value = {}
     return
   }
+  const token = favRace.next()
   loadingAssets.value = true
   try {
     const results = await Promise.allSettled(
-      ids.map(id => getAssetDetail(id, { currency: financeStore.defaultCurrency }))
+      ids.map(id => getAssetDetail(id, {
+currency: toApiCurrency(financeStore.defaultCurrency)
+}))
     )
+    if (!favRace.isLatest(token))
+      return
     const nextMap: Record<string, AssetSummaryItem> = {}
     for (let i = 0; i < results.length; i++) {
       const res = results[i]
       const assetId = ids[i]
-      if (res && assetId && res.status === 'fulfilled') {
+      if (res && assetId && res.status === 'fulfilled' && res.value?.code === 0) {
         const detail = res.value?.data
         if (detail?.asset) {
           nextMap[assetId] = detail.asset
@@ -79,7 +88,8 @@ async function loadFavoriteDetails() {
     assetDetailsMap.value = nextMap
   }
   finally {
-    loadingAssets.value = false
+    if (favRace.isLatest(token))
+      loadingAssets.value = false
   }
 }
 
@@ -156,23 +166,42 @@ function goAssetDetail(assetId: string) {
     return
   }
   uni.navigateTo({
-    url: `/pages-sub/finance/asset?id=${encodeURIComponent(assetId)}`
+    url: buildFinanceUrl('/pages-sub/finance/asset', {
+      asset_id: assetId,
+      scope_id: financeStore.defaultHomePool || 'universe_macro',
+      currency: financeStore.defaultCurrency,
+      range: financeStore.defaultRange
+    })
   })
 }
 
 function restoreFavoriteChart(item: FavoriteChartItem) {
-  const params = [
-    `id=${encodeURIComponent(item.asset_id)}`,
-    `chart=${encodeURIComponent(item.chart)}`
-  ]
-  if (item.context?.range)
-    params.push(`range=${encodeURIComponent(item.context.range)}`)
-  if (item.context?.currency)
-    params.push(`currency=${encodeURIComponent(item.context.currency)}`)
-  if (item.snapshot_mode === 'fixed' && item.snapshot_id)
-    params.push(`snapshot_id=${encodeURIComponent(item.snapshot_id)}`)
+  const isFixed = item.snapshot_mode === 'fixed' && Boolean(item.snapshot_id)
+  const goOverview = item.chart === 'matrix' || item.context?.view_mode === 'quotes'
+  const targetPath = goOverview
+    ? '/pages-sub/finance/index'
+    : '/pages-sub/divergence/index'
   uni.navigateTo({
-    url: `/pages-sub/finance/asset?${params.join('&')}`
+    url: buildFinanceUrl(targetPath, {
+      asset_id: item.asset_id,
+      scope_id: item.context?.scope_id || item.context?.pool_id || financeStore.defaultHomePool || 'universe_macro',
+      chart: item.chart,
+      range: (item.context?.range as any) || financeStore.defaultRange,
+      currency: (item.context?.currency as any) || financeStore.defaultCurrency,
+      benchmark_id: item.context?.benchmark_id || '',
+      snapshot_mode: isFixed ? 'fixed' : 'latest',
+      snapshot_id: isFixed
+        ? (item.snapshot_id || '')
+        : '',
+      view_mode: item.context?.view_mode || (item.chart === 'matrix'
+? 'matrix'
+: undefined),
+      sort: item.context?.sort,
+      order: item.context?.order,
+      market: item.context?.market,
+      asset_type: item.context?.asset_type,
+      status: item.context?.status
+    })
   })
 }
 
@@ -187,12 +216,69 @@ function handleCreateGroup() {
     uni.showToast({ title: '请输入分组名称', icon: 'none' })
     return
   }
-  if (!financeStore.favoriteAssetGroups[name])
-    financeStore.favoriteAssetGroups[name] = []
+  financeStore.createFavoriteGroup(name)
   activeGroup.value = name
   newGroupName.value = ''
   showGroupInput.value = false
   uni.showToast({ title: `已创建分组「${name}」`, icon: 'none' })
+}
+
+function handleAssignSingleToGroup(assetId: string) {
+  const names = groupNames.value
+  if (!names.length) {
+    showGroupInput.value = true
+    uni.showToast({ title: '请先新建分组', icon: 'none' })
+    return
+  }
+  uni.showActionSheet({
+    itemList: names,
+    success: (res) => {
+      const target = names[res.tapIndex]
+      if (target) {
+        financeStore.assignAssetToGroup(assetId, target)
+        uni.showToast({ title: `已加入「${target}」`, icon: 'none' })
+      }
+    }
+  })
+}
+
+function handleRemoveFromCurrentGroup(assetId: string) {
+  if (activeGroup.value === 'all')
+    return
+  financeStore.removeAssetFromGroup(assetId, activeGroup.value)
+  uni.showToast({ title: `已移出「${activeGroup.value}」`, icon: 'none' })
+}
+
+function handleBatchAssignToGroup() {
+  if (!selectedAssetIds.value.length)
+    return
+  const names = groupNames.value
+  if (!names.length) {
+    showGroupInput.value = true
+    uni.showToast({ title: '请先新建分组', icon: 'none' })
+    return
+  }
+  uni.showActionSheet({
+    itemList: names,
+    success: (res) => {
+      const target = names[res.tapIndex]
+      if (target) {
+        financeStore.batchAssignAssetsToGroup(selectedAssetIds.value, target)
+        uni.showToast({ title: `已将 ${selectedAssetIds.value.length} 项加入「${target}」`, icon: 'none' })
+        selectedAssetIds.value = []
+        editMode.value = false
+      }
+    }
+  })
+}
+
+function handleDeleteActiveGroup() {
+  if (activeGroup.value === 'all')
+    return
+  const target = activeGroup.value
+  financeStore.deleteFavoriteGroup(target)
+  activeGroup.value = 'all'
+  uni.showToast({ title: `已删除分组「${target}」`, icon: 'none' })
 }
 
 function handleSetDefaultPool(poolId: string, poolName: string) {
@@ -347,26 +433,45 @@ function getChangeColor(val: number | null | undefined): string {
             : 'background-color: var(--cc-bg-elevated); color: var(--cc-text-secondary);'"
           @tap="activeGroup = gName"
         >
-          {{ gName }}
+          {{ gName }} ({{ (financeStore.favoriteAssetGroups[gName] || []).length }})
+        </view>
+        <view
+          v-if="activeGroup !== 'all'"
+          class="px-2 py-1 rounded-full text-[11px] shrink-0 cursor-pointer border"
+          style="border-color: var(--cc-up); color: var(--cc-up);"
+          @tap="handleDeleteActiveGroup"
+        >
+          删组
         </view>
       </view>
 
       <!-- 批量操作条 -->
       <view
         v-if="editMode && displayedAssetIds.length > 0"
-        class="mb-2.5 px-3 py-2 rounded-xl cc-panel flex items-center justify-between"
+        class="mb-2.5 px-3 py-2 rounded-xl cc-panel flex items-center justify-between gap-2"
       >
         <view class="text-xs cc-text-secondary cursor-pointer" @tap="toggleSelectAll">
-          {{ allSelected ? '取消全选' : '全选当前' }} ({{ selectedAssetIds.length }}/{{ displayedAssetIds.length }})
+          {{ allSelected ? '取消全选' : '全选' }} ({{ selectedAssetIds.length }}/{{ displayedAssetIds.length }})
         </view>
-        <view
-          class="px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer"
-          :style="selectedAssetIds.length > 0
-            ? 'background-color: var(--cc-up); color: #FFFFFF;'
-            : 'background-color: var(--cc-bg-elevated); color: var(--cc-text-muted);'"
-          @tap="handleBatchRemove"
-        >
-          移除所选
+        <view class="flex items-center gap-2">
+          <view
+            class="px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer border"
+            :style="selectedAssetIds.length > 0
+              ? 'border-color: var(--cc-brand-primary); color: var(--cc-brand-primary);'
+              : 'border-color: var(--cc-border); color: var(--cc-text-muted);'"
+            @tap="handleBatchAssignToGroup"
+          >
+            加入分组
+          </view>
+          <view
+            class="px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer"
+            :style="selectedAssetIds.length > 0
+              ? 'background-color: var(--cc-up); color: #FFFFFF;'
+              : 'background-color: var(--cc-bg-elevated); color: var(--cc-text-muted);'"
+            @tap="handleBatchRemove"
+          >
+            移除所选
+          </view>
         </view>
       </view>
 
@@ -483,6 +588,21 @@ function getChangeColor(val: number | null | undefined): string {
             </view>
 
             <view
+              v-if="!editMode && activeGroup !== 'all'"
+              class="px-2 py-1 rounded text-[11px] cc-elevated cc-text-secondary"
+              @tap.stop="handleRemoveFromCurrentGroup(assetId)"
+            >
+              移出组
+            </view>
+            <view
+              v-else-if="!editMode"
+              class="px-2 py-1 rounded text-[11px] cc-elevated cc-text-secondary"
+              @tap.stop="handleAssignSingleToGroup(assetId)"
+            >
+              分组
+            </view>
+
+            <view
               v-if="!editMode"
               class="w-8 h-8 flex items-center justify-center text-base cc-brand"
               @tap.stop="handleSingleUnfavorite(assetId)"
@@ -522,10 +642,13 @@ function getChangeColor(val: number | null | undefined): string {
             <text class="text-[11px] cc-text-muted block mt-0.5">
               {{ chartItem.context?.currency || financeStore.defaultCurrency }} · {{ chartItem.context?.range || financeStore.defaultRange }}
             </text>
+            <text v-if="chartItem.note" class="text-[11px] cc-text-secondary block mt-0.5 truncate">
+              备注：{{ chartItem.note }}
+            </text>
           </view>
           <view class="flex items-center gap-2 shrink-0">
             <text class="text-xs cc-brand">
-              {{ chartItem.snapshot_mode === 'fixed' ? '固定快照' : '最新快照' }}
+              {{ chartItem.snapshot_mode === 'fixed' ? '保存本期' : '每日跟踪' }}
             </text>
             <view
               class="px-2 py-1 rounded text-[11px] cc-elevated cc-text-secondary"

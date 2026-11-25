@@ -33,6 +33,8 @@ export interface IndustryMetric {
   unit: string
   catalyst: string
   as_of: string
+  data_date?: string
+  is_reference?: boolean
   meta: DataSourceMeta
 }
 
@@ -43,6 +45,10 @@ export interface CycleOverview {
   equity_bond_spread: number
   style_preference: string
   summary: string
+  data_date?: string
+  source_name?: string
+  is_static_reference?: boolean
+  evidence_notes?: string[]
 }
 
 export interface RotationSignal {
@@ -53,6 +59,19 @@ export interface RotationSignal {
   action: string
   to_high_pct: number
   to_low_pct: number
+}
+
+export interface ScoreFactor {
+  key: string
+  name: string
+  value: number
+  unit: string
+  weight_pct: number
+  score: number
+  as_of: string
+  source: string
+  status: 'computed' | 'live' | 'static_reference' | 'stale' | 'unavailable' | string
+  note?: string
 }
 
 export interface ScoreResult {
@@ -67,6 +86,8 @@ export interface ScoreResult {
   amount: number
   reduce_ratio: number
   close?: number
+  as_of?: string
+  has_stale_input?: boolean
   pe?: number
   pe_percentile?: number
   dividend_yield?: number
@@ -75,6 +96,8 @@ export interface ScoreResult {
   b_pct100?: number
   style_percentile?: number
   data_source_note?: string
+  rule_summary?: string
+  factors?: ScoreFactor[]
 }
 
 export interface CombinedSignal {
@@ -101,6 +124,10 @@ export interface BacktestSummary {
   zone_distribution: Record<string, number>
   total_rebuy_count: number
   ledger_entries_count: number
+  rule_version?: string
+  data_source?: string
+  execution_timing?: string
+  clip_reason?: string
 }
 
 export interface BacktestOutput {
@@ -111,10 +138,15 @@ export interface BacktestOutput {
 
 export interface PortfolioPosition {
   symbol: string
+  signal_symbol?: string
   name: string
   shares: number
   cost_price: number
   current_price: number
+  unit_price_1_share?: number
+  price_status?: 'live' | 'last_known' | 'cost_fallback' | 'unavailable' | string
+  valuation_date?: string
+  valuation_source?: string
   market_value: number
   total_cost: number
   unrealized_profit: number
@@ -122,20 +154,36 @@ export interface PortfolioPosition {
 }
 
 export interface PortfolioTransaction {
+  id?: string
   date: string
-  event_type: 'cash_deposit' | 'weekly_invest' | string
+  week_key?: string
+  event_type:
+    | 'account_init'
+    | 'cash_deposit'
+    | 'cash_pool_deposit'
+    | 'weekly_invest'
+    | 'cash_pool_rebuy'
+    | 'manual_adjustment'
+    | 'manual_rebuy_override'
+    | string
   target_name: string
+  symbol?: string | null
   amount: number
   description: string
   shares?: number
   price?: number
+  cash_delta?: number
   cash_pool_delta?: number
+  cash_balance_after?: number
   cash_pool_after?: number
+  source?: 'user_action' | 'strategy_auto' | 'legacy_v1_migrated' | string
+  unverified?: boolean
   [key: string]: any
 }
 
 export interface PortfolioOverview {
   account_id: string
+  is_demo?: boolean
   total_asset: number
   available_cash: number
   cash_pool: number
@@ -143,6 +191,9 @@ export interface PortfolioOverview {
   total_cost: number
   total_profit: number
   total_profit_pct: number
+  valuation_date?: string
+  valuation_note?: string
+  warnings?: string[]
   positions: PortfolioPosition[]
   recent_transactions: PortfolioTransaction[]
 }
@@ -256,63 +307,78 @@ async function fetchWithCache<T>(
   return promise
 }
 
-export const clearApiCache = () => {
+export function clearApiCache () {
   memoryCache.clear()
   pendingPromises.clear()
   bgRefreshingKeys.clear()
 }
 
-export const getMarketQuotes = (category?: string, forceRefresh = false) => {
+export function getMarketQuotes (category?: string, forceRefresh = false) {
   const key = `market_quotes_${category || 'all'}`
   return fetchWithCache<MarketQuote[]>(
     key,
     30_000, // 30秒缓存
-    () => http.get<MarketQuote[]>('/api/v1/markets/quotes', category ? { category } : undefined, { meta: { loading: false, toast: false } }),
+    () => http.get<MarketQuote[]>('/api/v1/markets/quotes', category
+? { category }
+: undefined, {
+meta: { loading: false, toast: false }
+}),
     forceRefresh
   )
 }
 
-export const getIndustryMetrics = (forceRefresh = false) => {
+export function getIndustryMetrics (forceRefresh = false) {
   return fetchWithCache<IndustryMetric[]>(
     'industry_metrics',
     60_000, // 1分钟缓存
-    () => http.get<IndustryMetric[]>('/api/v1/sectors/metrics', undefined, { meta: { loading: false, toast: false } }),
+    () => http.get<IndustryMetric[]>('/api/v1/sectors/metrics', undefined, {
+meta: { loading: false, toast: false }
+}),
     forceRefresh
   )
 }
 
-export const getCycleOverview = (forceRefresh = false) => {
+export function getCycleOverview (forceRefresh = false) {
   return fetchWithCache<CycleOverview>(
     'cycle_overview',
     60_000, // 1分钟缓存
-    () => http.get<CycleOverview>('/api/v1/cycles/overview', undefined, { meta: { loading: false, toast: false } }),
+    () => http.get<CycleOverview>('/api/v1/cycles/overview', undefined, {
+meta: { loading: false, toast: false }
+}),
     forceRefresh
   )
 }
 
-export const getCombinedStrategySignal = (forceRefresh = false) => {
+export function getCombinedStrategySignal (forceRefresh = false) {
   return fetchWithCache<CombinedSignal>(
     'combined_strategy_signal',
     60_000, // 1分钟缓存
-    () => http.get<CombinedSignal>('/api/v1/strategies/combined', undefined, { meta: { loading: false, toast: false } }),
+    () => http.get<CombinedSignal>('/api/v1/strategies/combined', undefined, {
+meta: { loading: false, toast: false }
+}),
     forceRefresh
   )
 }
 
-export const runBacktest = (params: {
+export function runBacktest (params: {
   low_line: number
   high_line: number
   weekly_amount: number
   days: number
-}) => {
-  return http.post<BacktestOutput>('/api/v1/backtests/run', params, { timeout: 25000, meta: { loading: false, toast: false } })
+}) {
+  return http.post<BacktestOutput>('/api/v1/backtests/run', params, {
+timeout: 25000,
+meta: { loading: false, toast: false }
+})
 }
 
-export const getPortfolioOverview = (forceRefresh = false) => {
+export function getPortfolioOverview (forceRefresh = false) {
   return fetchWithCache<PortfolioOverview>(
     'portfolio_overview',
     30_000, // 30秒缓存
-    () => http.get<PortfolioOverview>('/api/v1/portfolios/overview', undefined, { meta: { loading: false, toast: false } }),
+    () => http.get<PortfolioOverview>('/api/v1/portfolios/overview', undefined, {
+meta: { loading: false, toast: false }
+}),
     forceRefresh
   )
 }

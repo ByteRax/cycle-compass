@@ -1,9 +1,11 @@
 <script lang="ts" setup>
 import type { TierBucket, TrendTierResponse } from '@/api/types/trend'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getTrendTier } from '@/api/trend'
 import TrendTempBadge from '@/components/finance/TrendTempBadge.vue'
 import { useFinanceStore } from '@/stores/finance'
+import { createAsyncRace, unwrapApiResponse } from '@/utils/asyncRace'
+import { buildFinanceUrl } from '@/utils/financeRoute'
 import { TIER_META_MAP } from '@/utils/trendDict'
 
 interface Props {
@@ -31,9 +33,16 @@ const loading = ref(false)
 const errorMsg = ref('')
 const data = ref<TrendTierResponse | null>(null)
 
+const race = createAsyncRace()
+
+onUnmounted(() => {
+  race.invalidate()
+})
+
 async function fetchData () {
   if (!props.assetId)
     return
+  const token = race.next()
   loading.value = true
   errorMsg.value = ''
   try {
@@ -41,14 +50,19 @@ async function fetchData () {
       scope_id: props.scopeId,
       snapshot_id: props.snapshotId
     })
-    data.value = res.data ?? null
+    if (!race.isLatest(token))
+      return
+    data.value = unwrapApiResponse(res, '趋势梯队榜加载失败')
   }
   catch (err: any) {
+    if (!race.isLatest(token))
+      return
     errorMsg.value = err?.message || '趋势梯队榜加载失败'
     data.value = null
   }
   finally {
-    loading.value = false
+    if (race.isLatest(token))
+      loading.value = false
   }
 }
 
@@ -82,7 +96,14 @@ function formatDelta (delta: number | null): string {
 
 function navigateToAsset (assetId: string) {
   uni.navigateTo({
-    url: `/pages-sub/finance/asset?id=${encodeURIComponent(assetId)}`
+    url: buildFinanceUrl('/pages-sub/finance/asset', {
+      asset_id: assetId,
+      scope_id: props.scopeId || props.assetId,
+      currency: (props.currency as any) || undefined,
+      range: (props.range as any) || undefined,
+      snapshot_mode: props.snapshotId ? 'fixed' : 'latest',
+      snapshot_id: props.snapshotId || ''
+    })
   })
 }
 

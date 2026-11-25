@@ -13,11 +13,15 @@ type GlobalMacroIndicator struct {
 }
 
 type CycleCompassState struct {
-	CurrentPhase     string                 `json:"current_phase"`
-	PhaseCode        int                    `json:"phase_code"`
-	DominantAsset    string                 `json:"dominant_asset"`
-	MacroIndicators  []GlobalMacroIndicator `json:"macro_indicators"`
-	EquityBondSpread float64                `json:"equity_bond_spread"`
-	StylePreference  string                 `json:"style_preference"`
-	Summary          string                 `json:"summary"`
+	CurrentPhase      string                 `json:"current_phase"`
+	PhaseCode         int                    `json:"phase_code"`
+	DominantAsset     string                 `json:"dominant_asset"`
+	MacroIndicators   []GlobalMacroIndicator `json:"macro_indicators"`
+	EquityBondSpread  float64                `json:"equity_bond_spread"`
+	StylePreference   string                 `json:"style_preference"`
+	Summary           string                 `json:"summary"`
+	DataDate          string                 `json:"data_date"`
+	SourceName        string                 `json:"source_name"`
+	IsStaticReference bool                   `json:"is_static_reference"`
+	EvidenceNotes     []string               `json:"evidence_notes,omitempty"`
 }
