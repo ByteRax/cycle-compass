@@ -26,11 +26,30 @@ func (s *CycleService) GetCycleOverview(ctx context.Context) dto.CycleCompassSta
 
 	bondYield := 0.0
 	bondDate := ""
+	bondSource := "bond10y.csv"
 	for _, m := range macros {
 		if m.Code == "CN10Y" && m.Value > 0 {
 			bondYield = m.Value
 			bondDate = m.AsOf
 			break
+		}
+	}
+	if s.provider != nil {
+		liveBond := s.provider.GetQuote(ctx, "CN10Y")
+		if liveBond.Meta.Status == "ok" && liveBond.Price > 0 && liveBond.AsOf >= bondDate {
+			bondYield = liveBond.Price
+			bondDate = liveBond.AsOf
+			if liveBond.Meta.SourceName != "" {
+				bondSource = liveBond.Meta.SourceName
+			}
+			for i := range macros {
+				if macros[i].Code == "CN10Y" {
+					macros[i].Value = liveBond.Price
+					macros[i].AsOf = liveBond.AsOf
+					macros[i].Meta = liveBond.Meta
+					break
+				}
+			}
 		}
 	}
 	divYield := 4.39 // 静态股息率样例基线（2025-01-24）
@@ -62,7 +81,7 @@ func (s *CycleService) GetCycleOverview(ctx context.Context) dto.CycleCompassSta
 	}
 
 	evidence := []string{
-		fmt.Sprintf("CN10Y十年期国债收益率 %.2f%%（观测日 %s，数据源 bond10y.csv）", bondYield, bondDate),
+		fmt.Sprintf("CN10Y十年期国债收益率 %.2f%%（观测日 %s，数据源 %s）", bondYield, bondDate, bondSource),
 		fmt.Sprintf("股债利差 %.2f%%（基于红利低波参考股息率 %.2f%% 与 CN10Y 计算）", spread, divYield),
 		fmt.Sprintf("创50/红利比值处于 1500 日 %.1f%% 历史分位（基于历史收盘CSV）", quantilePct),
 		"宏观阶段与占优资产文字研判为离线研究归档结论，不随盘中行情自动改写",

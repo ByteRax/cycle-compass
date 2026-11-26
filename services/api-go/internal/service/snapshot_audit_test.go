@@ -175,3 +175,100 @@ func TestSnapshotRevisionFreezeAndCurveFX_Audit07_11(t *testing.T) {
 	}
 	_ = strings.Contains
 }
+
+func TestReconcileScopeSnapshotMeta_UniverseMacro(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "reconcile_scope.db")
+	store, err := storage.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Seed bars for all universe_macro members, leaving other catalog assets missing so global snapshot is degraded.
+	var macroIDs []string
+	for _, u := range market.V4Universes {
+		if u.ID == "universe_macro" {
+			macroIDs = u.MemberAssetIDs
+			break
+		}
+	}
+	if len(macroIDs) == 0 {
+		t.Fatalf("universe_macro not found in V4Universes")
+	}
+
+	var bars []storage.DailyBarEntity
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	for _, id := range macroIDs {
+		for i := 0; i < 10; i++ {
+			d := base.AddDate(0, 0, i).Format("2006-01-02")
+			c := 100.0 + float64(i)
+			bars = append(bars, storage.DailyBarEntity{
+				AssetID: id, TradingDate: d, Provider: "test", Revision: 1,
+				Close: &c, QualityStatus: "ok", AsOf: d, AvailableAt: d + "T16:00:00Z", UpdatedAt: d,
+			})
+		}
+	}
+	if err := store.UpsertDailyBars(bars); err != nil {
+		t.Fatalf("UpsertDailyBars failed: %v", err)
+	}
+
+	hist := market.NewHistoricalProvider(market.HistoricalProviderConfig{OfflineOnly: true})
+	svc := service.NewTrendService(store, hist)
+	ctx := context.Background()
+	if err := svc.BootstrapAndComputeSnapshot(ctx, false); err != nil {
+		t.Fatalf("BootstrapAndComputeSnapshot failed: %v", err)
+	}
+
+	// Global snapshot must still be degraded because non-macro assets lack bars.
+	globalSnap, err := svc.GetLatestSnapshot(ctx, "all", "ORIGINAL", "latest_available")
+	if err != nil {
+		t.Fatalf("GetLatestSnapshot failed: %v", err)
+	}
+	if globalSnap.Status != "degraded" {
+		t.Fatalf("expected global snapshot status=degraded, got %q", globalSnap.Status)
+	}
+
+	// universe_macro has all members covered -> status must reconcile to ok.
+	matrix, err := svc.GetPeriodMatrix(ctx, service.PeriodMatrixQuery{
+		PoolID:   "universe_macro",
+		ScopeID:  "universe_macro",
+		Currency: "CNY",
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatalf("GetPeriodMatrix failed: %v", err)
+	}
+	if matrix.Snapshot.Status != "ok" {
+		t.Fatalf("expected universe_macro snapshot status=ok, got %q (warnings=%v)", matrix.Snapshot.Status, matrix.Snapshot.Warnings)
+	}
+	if matrix.Snapshot.ValidCount != len(macroIDs) || matrix.Snapshot.CandidateCount != len(macroIDs) {
+		t.Fatalf("expected %d/%d valid, got %d/%d", len(macroIDs), len(macroIDs), matrix.Snapshot.ValidCount, matrix.Snapshot.CandidateCount)
+	}
+
+	// Deterministic ID: recomputing with identical bars must produce the exact same SnapshotID.
+	if err := svc.BootstrapAndComputeSnapshot(ctx, false); err != nil {
+		t.Fatalf("recompute failed: %v", err)
+	}
+	recomputedSnap, err := svc.GetLatestSnapshot(ctx, "all", "ORIGINAL", "latest_available")
+	if err != nil {
+		t.Fatalf("GetLatestSnapshot after recompute failed: %v", err)
+	}
+	if recomputedSnap.SnapshotID != globalSnap.SnapshotID {
+		t.Fatalf("expected deterministic snapshot ID %q, got %q", globalSnap.SnapshotID, recomputedSnap.SnapshotID)
+	}
+
+	// Date fallback: an old snapshot ID with a valid YYYYMMDD prefix must fall back gracefully instead of 410.
+	fallbackMatrix, err := svc.GetPeriodMatrix(ctx, service.PeriodMatrixQuery{
+		PoolID:     "universe_macro",
+		ScopeID:    "universe_macro",
+		SnapshotID: "snap_20261010_999999999",
+		Currency:   "CNY",
+		Limit:      20,
+	})
+	if err != nil {
+		t.Fatalf("expected date-prefixed missing snapshot to fall back gracefully, got error: %v", err)
+	}
+	if fallbackMatrix.Snapshot.SnapshotID != globalSnap.SnapshotID || !fallbackMatrix.Snapshot.IsExpired {
+		t.Fatalf("expected fallback to %q with IsExpired=true, got %+v", globalSnap.SnapshotID, fallbackMatrix.Snapshot)
+	}
+}

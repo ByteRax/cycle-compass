@@ -172,7 +172,6 @@
           },
           "name": "FINANCE_SETTINGS"
         },
-        // #ifdef MP-WEIXIN
         {
           "path": "finance/sector-detail",
           "type": "page",
@@ -183,7 +182,6 @@
           },
           "name": "FINANCE_SECTOR_DETAIL"
         }
-        // #endif
       ]
     }
   ]

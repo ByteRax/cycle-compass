@@ -1137,6 +1137,51 @@ func (s *SQLiteStore) GetSnapshotByID(snapshotID string) (*TrendSnapshotEntity, 
 	return scanSnapshot(row)
 }
 
+func (s *SQLiteStore) GetSnapshotByAsOf(scopeID, currency, mode, asOf string) (*TrendSnapshotEntity, error) {
+	row := s.db.QueryRow(`
+		SELECT snapshot_id, scope_id, currency, mode, as_of, computed_at,
+		       algorithm_version, candidate_count, valid_count, coverage,
+		       status, is_current, meta_json
+		FROM trend_snapshots
+		WHERE scope_id = ? AND currency = ? AND mode = ? AND as_of = ?
+		ORDER BY is_current DESC, computed_at DESC
+		LIMIT 1`, scopeID, currency, mode, asOf,
+	)
+	return scanSnapshot(row)
+}
+
+// PruneOldSnapshots keeps the latest keepCount snapshots per (scope_id, currency, mode) and removes older non-current ones.
+func (s *SQLiteStore) PruneOldSnapshots(keepCount int) error {
+	if keepCount <= 0 {
+		return nil
+	}
+	return s.execInTx(func(tx *sql.Tx) error {
+		rows, err := tx.Query(`
+			SELECT snapshot_id FROM trend_snapshots
+			WHERE is_current = 0
+			ORDER BY as_of DESC, computed_at DESC
+			LIMIT -1 OFFSET ?`, keepCount)
+		if err != nil {
+			return err
+		}
+		var staleIDs []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err == nil && id != "" {
+				staleIDs = append(staleIDs, id)
+			}
+		}
+		rows.Close()
+		for _, id := range staleIDs {
+			_, _ = tx.Exec(`DELETE FROM trend_snapshot_frozen_bars WHERE snapshot_id = ?`, id)
+			_, _ = tx.Exec(`DELETE FROM trend_daily_metrics WHERE snapshot_id = ?`, id)
+			_, _ = tx.Exec(`DELETE FROM strength_daily_rankings WHERE snapshot_id = ?`, id)
+			_, _ = tx.Exec(`DELETE FROM trend_snapshots WHERE snapshot_id = ? AND is_current = 0`, id)
+		}
+		return nil
+	})
+}
+
 func (s *SQLiteStore) ListTrendDailyMetrics(snapshotID string, assetIDs []string) ([]TrendDailyMetricEntity, error) {
 	args := []any{snapshotID}
 	query := `

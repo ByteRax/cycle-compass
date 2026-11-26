@@ -265,6 +265,13 @@ async function fetchAssetDetail() {
   catch (err: any) {
     if (!detailRace.isLatest(token))
       return
+    if (isExpiredSnapshotError(err) && snapshotMode.value === 'fixed' && requestedSnapshotId.value) {
+      snapshotMode.value = 'latest'
+      requestedSnapshotId.value = ''
+      resolvedSnapshotId.value = ''
+      uni.showToast({ title: '原锁定快照已过期，已自动切换为最新快照', icon: 'none' })
+      return fetchAssetDetail()
+    }
     assetDetail.value = null
     detailExpired.value = isExpiredSnapshotError(err)
     if (isNotFoundError(err))
@@ -289,8 +296,12 @@ function switchAsset(nextAssetId: string) {
   currentBenchmarkId.value = ''
   customStartDate.value = ''
   customEndDate.value = ''
-  if (snapshotMode.value === 'latest')
+  if (snapshotMode.value === 'latest' || detailExpired.value) {
+    snapshotMode.value = 'latest'
+    requestedSnapshotId.value = ''
     resolvedSnapshotId.value = ''
+    detailExpired.value = false
+  }
   assetDetail.value = null
   fetchAssetDetail()
 }
@@ -505,7 +516,7 @@ onShareAppMessage(() => {
 
       <!-- 标的快捷切换（仅展示目录真实存在且有成员的观察池） + 支持视图 Tab -->
       <view class="px-3 pb-2 space-y-1.5">
-        <scroll-view v-if="quickAssets.length > 0" scroll-x class="whitespace-nowrap w-full">
+        <scroll-view v-if="quickAssets.length > 0" scroll-x enhanced :show-scrollbar="false" class="whitespace-nowrap w-full">
           <view class="inline-flex items-center gap-1.5">
             <text
               v-for="asset in quickAssets"
@@ -602,6 +613,7 @@ onShareAppMessage(() => {
             切回最新快照
           </view>
           <view
+            v-if="!detailExpired"
             class="px-4 min-h-[40px] rounded-xl border flex items-center justify-center text-[12px] font-bold"
             :class="isDark ? 'border-[#E5B352] text-[#E5B352]' : 'border-[#8A641F] text-[#8A641F]'"
             @tap="fetchAssetDetail"

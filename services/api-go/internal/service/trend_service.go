@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"sort"
 	"strconv"
@@ -270,7 +271,7 @@ func (s *TrendService) BootstrapAndComputeSnapshot(ctx context.Context, fetchOnl
 	if snapStamp == "" {
 		snapStamp = "insufficient"
 	}
-	snapshotID := fmt.Sprintf("snap_%s_%d", snapStamp, time.Now().UTC().UnixNano())
+	snapshotID := computeDeterministicSnapshotID(snapStamp, cfg.AlgorithmVersion, barsByAsset)
 
 	metricMap := make(map[string]storage.TrendDailyMetricEntity, len(market.V4CatalogAssets))
 	trendBarsMap := make(map[string][]trend.DailyBar, len(barsByAsset))
@@ -536,6 +537,7 @@ func (s *TrendService) BootstrapAndComputeSnapshot(ctx context.Context, fetchOnl
 	if err := s.store.PublishTrendSnapshotWithFrozen(snapshot, metricsSlice, allRankings, allEvents, barsByAsset); err != nil {
 		return fmt.Errorf("publish snapshot: %w", err)
 	}
+	_ = s.store.PruneOldSnapshots(60)
 	return nil
 }
 
@@ -1108,6 +1110,7 @@ func (s *TrendService) GetAssetMembers(ctx context.Context, q MembersQuery) (*dt
 
 	// 全池统计与全池市场选项（不受筛选与分页影响）
 	overview := computeOverviewFromSummaries(allItems)
+	meta = reconcileScopeSnapshotMeta(meta, effScope, members, allItems)
 	availableMarkets := collectAvailableMarkets(allItems)
 
 	// 服务端筛选（市场 / 类型 / 趋势状态 / 关键词）
@@ -1209,6 +1212,7 @@ func (s *TrendService) GetPeriodMatrix(ctx context.Context, q PeriodMatrixQuery)
 	}
 
 	overview := computeOverviewFromSummaries(allItems)
+	meta = reconcileScopeSnapshotMeta(meta, effScope, members, allItems)
 	availableMarkets := collectAvailableMarkets(allItems)
 
 	// 服务端筛选（在全池范围内先筛选，保证匹配数与分页总数一致）
@@ -2402,8 +2406,26 @@ func (s *TrendService) resolveSnapshot(snapshotID, scopeID, currency, mode strin
 
 	var snap *storage.TrendSnapshotEntity
 	var err error
+	var fallbackUsed bool
 	if snapshotID != "" {
 		snap, err = s.store.GetSnapshotByID(snapshotID)
+		if errors.Is(err, sql.ErrNoRows) || snap == nil {
+			if asOfDate := extractSnapshotAsOf(snapshotID); asOfDate != "" {
+				snap, err = s.store.GetSnapshotByAsOf(scopeID, currency, mode, asOfDate)
+				if errors.Is(err, sql.ErrNoRows) || snap == nil {
+					snap, err = s.store.GetSnapshotByAsOf(defaultScopeID, defaultCurrency, defaultMode, asOfDate)
+				}
+				if errors.Is(err, sql.ErrNoRows) || snap == nil {
+					snap, err = s.store.GetCurrentSnapshot(scopeID, currency, mode)
+				}
+				if errors.Is(err, sql.ErrNoRows) || snap == nil {
+					snap, err = s.store.GetCurrentSnapshot(defaultScopeID, defaultCurrency, defaultMode)
+				}
+				if err == nil && snap != nil {
+					fallbackUsed = true
+				}
+			}
+		}
 		if errors.Is(err, sql.ErrNoRows) || snap == nil {
 			return nil, dto.SnapshotMeta{
 				SnapshotID:          "",
@@ -2457,7 +2479,9 @@ func (s *TrendService) resolveSnapshot(snapshotID, scopeID, currency, mode strin
 	if extra.Warnings == nil {
 		extra.Warnings = []string{}
 	}
-	if snapshotID != "" && !snap.IsCurrent {
+	if fallbackUsed {
+		extra.Warnings = append(extra.Warnings, fmt.Sprintf("原锁定快照 %s 不存在，已自动回退至 %s 可用快照", snapshotID, snap.AsOf))
+	} else if snapshotID != "" && !snap.IsCurrent {
 		extra.Warnings = append(extra.Warnings, fmt.Sprintf("当前锁定历史快照 %s（已有更新快照）", snap.AsOf))
 	}
 
@@ -2478,10 +2502,65 @@ func (s *TrendService) resolveSnapshot(snapshotID, scopeID, currency, mode strin
 		Mode:                snap.Mode,
 		Status:              snap.Status,
 		IsCurrent:           snap.IsCurrent,
+		IsExpired:           fallbackUsed,
 		SourceDates:         extra.SourceDates,
 		Warnings:            extra.Warnings,
 	}
 	return snap, meta, nil
+}
+
+// computeDeterministicSnapshotID 基于截止日、算法版本与各资产日线(含修订号与收盘价)生成确定性快照 ID。
+// 同一批行情在服务重启、定时重算或整库重建后生成相同 ID；若任意日线或修订发生变化则生成新 ID。
+func computeDeterministicSnapshotID(snapStamp, algoVer string, barsByAsset map[string][]storage.DailyBarEntity) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(snapStamp))
+	_, _ = h.Write([]byte("|"))
+	_, _ = h.Write([]byte(algoVer))
+
+	assetIDs := make([]string, 0, len(barsByAsset))
+	for id := range barsByAsset {
+		assetIDs = append(assetIDs, id)
+	}
+	sort.Strings(assetIDs)
+
+	for _, id := range assetIDs {
+		bars := barsByAsset[id]
+		_, _ = fmt.Fprintf(h, "|%s:%d", id, len(bars))
+		for _, b := range bars {
+			closeVal := 0.0
+			if b.Close != nil {
+				closeVal = *b.Close
+			}
+			yieldVal := 0.0
+			if b.YieldPct != nil {
+				yieldVal = *b.YieldPct
+			}
+			_, _ = fmt.Fprintf(h, ";%s@%d=%.6f/%.6f:%s", b.TradingDate, b.Revision, closeVal, yieldVal, b.QualityStatus)
+		}
+	}
+	return fmt.Sprintf("snap_%s_%d", snapStamp, h.Sum64())
+}
+
+// extractSnapshotAsOf 从合法的快照 ID (格式 snap_YYYYMMDD_...) 中提取 YYYY-MM-DD 日期，非法格式返回空串。
+func extractSnapshotAsOf(snapshotID string) string {
+	if !strings.HasPrefix(snapshotID, "snap_") {
+		return ""
+	}
+	rest := strings.TrimPrefix(snapshotID, "snap_")
+	if len(rest) < 8 {
+		return ""
+	}
+	datePart := rest[:8]
+	for i := 0; i < 8; i++ {
+		if datePart[i] < '0' || datePart[i] > '9' {
+			return ""
+		}
+	}
+	t, err := time.Parse("20060102", datePart)
+	if err != nil {
+		return ""
+	}
+	return t.Format("2006-01-02")
 }
 
 func resolveScopeLabel(scopeID string) string {
@@ -3173,6 +3252,58 @@ func computeOverviewFromMetrics(metrics []storage.TrendDailyMetricEntity) dto.Ca
 		overview.OtherRatioPct = &or
 	}
 	return overview
+}
+
+// reconcileScopeSnapshotMeta 当子观察池复用全市场快照时，按当前观察池自身覆盖率重算状态与告警，避免被池外缺口标的误标为 degraded。
+func reconcileScopeSnapshotMeta(meta dto.SnapshotMeta, effScope string, members []storage.AssetEntity, allItems []dto.AssetSummaryItem) dto.SnapshotMeta {
+	if effScope == "" || effScope == defaultScopeID || meta.Status != "degraded" || len(members) == 0 {
+		return meta
+	}
+	candidateCount := 0
+	for _, m := range members {
+		if m.LicenseStatus != string(market.LicenseNotCovered) {
+			candidateCount++
+		}
+	}
+	if candidateCount == 0 {
+		return meta
+	}
+	validCount := 0
+	for _, it := range allItems {
+		if it.LicenseStatus == string(market.LicenseNotCovered) {
+			continue
+		}
+		if (it.AsOf != nil && *it.AsOf != "") || (it.Metrics.Side != string(trend.SideUnknown) && it.Metrics.Side != "") {
+			validCount++
+		}
+	}
+	if validCount > candidateCount {
+		validCount = candidateCount
+	}
+	cov := round4(float64(validCount) / float64(candidateCount))
+	meta.CandidateCount = candidateCount
+	meta.ValidCount = validCount
+	meta.Coverage = &cov
+
+	filteredWarnings := make([]string, 0, len(meta.Warnings))
+	for _, w := range meta.Warnings {
+		if strings.HasPrefix(w, "部分标的缺少历史日线") {
+			continue
+		}
+		filteredWarnings = append(filteredWarnings, w)
+	}
+	switch {
+	case validCount == 0:
+		meta.Status = "insufficient"
+		filteredWarnings = append(filteredWarnings, "当前观察池尚无有效日线数据")
+	case validCount < candidateCount:
+		meta.Status = "degraded"
+		filteredWarnings = append(filteredWarnings, fmt.Sprintf("部分标的缺少历史日线（有效 %d/%d）", validCount, candidateCount))
+	default:
+		meta.Status = "ok"
+	}
+	meta.Warnings = filteredWarnings
+	return meta
 }
 
 func computeOverviewFromSummaries(items []dto.AssetSummaryItem) dto.CatalogOverview {

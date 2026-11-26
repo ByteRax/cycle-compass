@@ -134,7 +134,7 @@ const currencyChoices: Array<{ key: 'CNY' | 'USD' | 'HKD' | 'RAW', title: string
 ]
 
 const isPoolFavorite = computed(() => financeStore.isAssetFavorite(currentPoolId.value))
-const isStale = computed(() => snapshot.value?.status === 'stale' || snapshot.value?.status === 'degraded')
+const isStale = computed(() => snapshot.value?.status === 'stale')
 
 const statusBadgeText = computed(() => {
   const st = snapshot.value?.status
@@ -481,6 +481,13 @@ async function fetchPoolData(append = false, forceRefreshSnapshot = false) {
       nextCursor.value = null
       uni.showToast({ title: '数据快照已更新，请刷新列表', icon: 'none' })
       return
+    }
+    if (!append && isExpiredSnapshotError(err) && snapshotMode.value === 'fixed' && (requestedSnapshotId.value || boundSnapshotId.value)) {
+      snapshotMode.value = 'latest'
+      requestedSnapshotId.value = ''
+      boundSnapshotId.value = ''
+      uni.showToast({ title: '原锁定快照已过期，已自动切换为最新快照', icon: 'none' })
+      return fetchPoolData(false, true)
     }
     if (!append) {
       overviewUnavailable.value = true
@@ -904,6 +911,7 @@ function openDataStatus() {
       <scroll-view
         v-if="catalog?.universes?.length"
         scroll-x
+        enhanced
         class="whitespace-nowrap"
         :show-scrollbar="false"
       >
@@ -1099,7 +1107,7 @@ function openDataStatus() {
       </view>
 
       <!-- 资产类型筛选条 -->
-      <scroll-view scroll-x class="whitespace-nowrap" :show-scrollbar="false">
+      <scroll-view scroll-x enhanced class="whitespace-nowrap" :show-scrollbar="false">
         <view class="inline-flex items-center gap-1.5">
           <view
             v-for="chip in assetTypeChips"

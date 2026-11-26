@@ -208,9 +208,16 @@ function openSearch() {
             </view>
             <view class="rounded-xl p-2.5" :class="isDark ? 'bg-[#181E25]' : 'bg-[#F3F2EE]'">
               <text class="text-[11px] block" :class="isDark ? 'text-[#8D99A4]' : 'text-[#626F77]'">参考指数({{ matchedIndustry.unit }})</text>
-              <text class="text-[14px] font-bold font-mono cc-tabular mt-1 block">
-                {{ matchedIndustry.price_index }} ({{ matchedIndustry.price_change_pct >= 0 ? '+' : '' }}{{ matchedIndustry.price_change_pct }}%)
-              </text>
+              <view class="text-[14px] font-bold font-mono cc-tabular mt-1 flex items-center gap-1 flex-wrap">
+                <text>{{ matchedIndustry.price_index }}</text>
+                <text
+                  :class="matchedIndustry.price_change_pct > 0
+                    ? (isDark ? 'text-[#F05A50]' : 'text-[#B93842]')
+                    : (matchedIndustry.price_change_pct < 0 ? (isDark ? 'text-[#2AD1A3]' : 'text-[#14745E]') : '')"
+                >
+                  ({{ matchedIndustry.price_change_pct >= 0 ? '+' : '' }}{{ matchedIndustry.price_change_pct }}%)
+                </text>
+              </view>
             </view>
           </view>
 

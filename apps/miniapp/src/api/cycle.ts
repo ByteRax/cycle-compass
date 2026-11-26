@@ -313,11 +313,27 @@ export function clearApiCache () {
   bgRefreshingKeys.clear()
 }
 
+/**
+ * 判断当前是否处于盘中交易时段（北京时间工作日 09:10~11:35、12:55~15:05）
+ * 盘中返回 5000ms (5秒)，盘后/休市返回 60000ms (60秒)
+ */
+export function getAdaptiveRefreshIntervalMs (now = new Date()): number {
+  const cstMs = now.getTime() + (now.getTimezoneOffset() + 480) * 60_000
+  const cst = new Date(cstMs)
+  const day = cst.getDay()
+  if (day === 0 || day === 6)
+    return 60_000
+  const hhmm = cst.getHours() * 100 + cst.getMinutes()
+  if ((hhmm >= 910 && hhmm <= 1135) || (hhmm >= 1255 && hhmm <= 1505))
+    return 5_000
+  return 60_000
+}
+
 export function getMarketQuotes (category?: string, forceRefresh = false) {
   const key = `market_quotes_${category || 'all'}`
   return fetchWithCache<MarketQuote[]>(
     key,
-    30_000, // 30秒缓存
+    getAdaptiveRefreshIntervalMs(),
     () => http.get<MarketQuote[]>('/api/v1/markets/quotes', category
 ? { category }
 : undefined, {
@@ -330,7 +346,7 @@ meta: { loading: false, toast: false }
 export function getIndustryMetrics (forceRefresh = false) {
   return fetchWithCache<IndustryMetric[]>(
     'industry_metrics',
-    60_000, // 1分钟缓存
+    getAdaptiveRefreshIntervalMs(),
     () => http.get<IndustryMetric[]>('/api/v1/sectors/metrics', undefined, {
 meta: { loading: false, toast: false }
 }),
@@ -341,7 +357,7 @@ meta: { loading: false, toast: false }
 export function getCycleOverview (forceRefresh = false) {
   return fetchWithCache<CycleOverview>(
     'cycle_overview',
-    60_000, // 1分钟缓存
+    getAdaptiveRefreshIntervalMs(),
     () => http.get<CycleOverview>('/api/v1/cycles/overview', undefined, {
 meta: { loading: false, toast: false }
 }),
@@ -352,7 +368,7 @@ meta: { loading: false, toast: false }
 export function getCombinedStrategySignal (forceRefresh = false) {
   return fetchWithCache<CombinedSignal>(
     'combined_strategy_signal',
-    60_000, // 1分钟缓存
+    getAdaptiveRefreshIntervalMs(),
     () => http.get<CombinedSignal>('/api/v1/strategies/combined', undefined, {
 meta: { loading: false, toast: false }
 }),
@@ -375,7 +391,7 @@ meta: { loading: false, toast: false }
 export function getPortfolioOverview (forceRefresh = false) {
   return fetchWithCache<PortfolioOverview>(
     'portfolio_overview',
-    30_000, // 30秒缓存
+    getAdaptiveRefreshIntervalMs(),
     () => http.get<PortfolioOverview>('/api/v1/portfolios/overview', undefined, {
 meta: { loading: false, toast: false }
 }),

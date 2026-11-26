@@ -60,6 +60,20 @@ const emit = defineEmits<{
   (e: 'retrySectors'): void
 }>()
 
+const showVixGlossary = ref(false)
+const vixLevelText = computed(() => {
+  const val = props.vixQuote?.price
+  if (val === undefined || val === null)
+    return ''
+  if (val < 15)
+    return '当前 < 15：市场很淡定，大家普遍偏乐观'
+  if (val < 25)
+    return '当前 15 ~ 25：正常波动区间，情绪比较平稳'
+  if (val < 35)
+    return '当前 25 ~ 35：有点紧张，市场短期波动变大'
+  return '当前 ≥ 35：极度恐慌，暴涨暴跌常见但也可能孕育机会'
+})
+
 const activeSegment = ref<'quotes' | 'industries'>(props.initialSegment || 'quotes')
 watch(() => props.initialSegment, (val) => {
   if (val)
@@ -271,11 +285,15 @@ function openQuotePoolOrSearch(name: string, symbol?: string) {
       <view v-if="loadedMarketSubTabs.global" v-show="marketSubTab === 'global'" class="space-y-3">
         <view
           v-if="vixQuote"
-          class="rounded-xl bg-[#f05a50]/14 border border-[#f05a50]/35 px-3.5 py-2.5 flex items-center justify-between"
+          class="rounded-xl bg-[#f05a50]/14 border border-[#f05a50]/35 px-3.5 py-2.5 flex items-center justify-between cursor-pointer active:opacity-80"
+          @tap="showVixGlossary = true"
         >
           <view>
-            <text class="text-[10px] font-bold text-[#ff736a]">波动率指标</text>
-            <text class="text-sm font-bold text-[#f1efea] block">恐慌指数 VIX {{ vixQuote.price.toFixed(2) }}</text>
+            <view class="flex items-center gap-1.5">
+              <text class="text-[10px] font-bold text-[#ff736a]">波动率指标</text>
+              <text class="text-[10px] text-[#e5b352] bg-[#e5b352]/15 px-1.5 py-0.5 rounded-full font-medium">💡小白释义</text>
+            </view>
+            <text class="text-sm font-bold text-[#f1efea] block mt-0.5">恐慌指数 VIX {{ vixQuote.price.toFixed(2) }}</text>
           </view>
           <view class="text-right">
             <text class="text-base font-bold font-mono cc-tabular text-[#ff736a]">
@@ -475,6 +493,54 @@ function openQuotePoolOrSearch(name: string, symbol?: string) {
             :disable-auto-nav="true"
             @click="openQuotePoolOrSearch(item.name)"
           />
+        </view>
+      </view>
+    </view>
+
+    <!-- 恐慌指数 VIX 小白释义弹窗 -->
+    <view
+      v-if="showVixGlossary"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+      @tap="showVixGlossary = false"
+    >
+      <view
+        class="w-full max-w-sm bg-[#151a21] border border-white/[0.14] rounded-2xl p-4 space-y-3 text-[#f1efea]"
+        @tap.stop
+      >
+        <view class="flex items-center justify-between border-b border-white/[0.08] pb-2">
+          <text class="text-sm font-bold text-[#e5b352]">恐慌指数 VIX · 小白释义</text>
+          <text class="text-[#8d99a4] px-2 py-0.5 cursor-pointer" @tap="showVixGlossary = false">✕</text>
+        </view>
+        <view v-if="vixLevelText" class="px-3 py-2 rounded-xl bg-[#f05a50]/12 border border-[#f05a50]/30">
+          <text class="text-xs font-semibold text-[#ff736a] block">{{ vixLevelText }}</text>
+        </view>
+        <view class="grid grid-cols-3 gap-2 text-center">
+          <view class="p-2 rounded-xl bg-[#181e25] border border-white/[0.07]">
+            <text class="text-[10px] text-[#8d99a4] block">历史最低</text>
+            <text class="text-sm font-bold font-mono text-[#2ad1a3] block mt-0.5">8.56</text>
+            <text class="text-[10px] text-[#64707c] block">2017 大牛市</text>
+          </view>
+          <view class="p-2 rounded-xl bg-[#181e25] border border-white/[0.07]">
+            <text class="text-[10px] text-[#8d99a4] block">平时正常范围</text>
+            <text class="text-sm font-bold font-mono text-[#e5b352] block mt-0.5">12 ~ 20</text>
+            <text class="text-[10px] text-[#64707c] block">大多数交易日</text>
+          </view>
+          <view class="p-2 rounded-xl bg-[#181e25] border border-white/[0.07]">
+            <text class="text-[10px] text-[#8d99a4] block">历史最高</text>
+            <text class="text-sm font-bold font-mono text-[#ff736a] block mt-0.5">89.53</text>
+            <text class="text-[10px] text-[#64707c] block">08金融海啸/20熔断</text>
+          </view>
+        </view>
+        <view class="space-y-2 text-xs text-[#d1d5db] leading-relaxed">
+          <text class="block"><text class="font-bold text-[#f1efea]">一句话看懂：</text>VIX 就像股市的“天气预警等级”，专门衡量大家对未来 30 天美股大涨大跌有多害怕。</text>
+          <text class="block"><text class="font-bold text-[#f1efea]">四档范围速查：</text>&lt;15 极度淡定 · 15~25 正常波动 · 25~35 偏紧张 · ≥35 极度恐慌（超 40 往往是历史大震荡）。</text>
+          <text class="block"><text class="font-bold text-[#f1efea]">平时怎么用：</text>恐慌指数突然飙高时，别急着追涨杀跌；等它冲到高位再慢慢回落时，往往意味着最慌的时候快过去了。</text>
+        </view>
+        <view
+          class="py-2 text-center rounded-xl bg-[#e5b352] text-[#090c0f] font-bold text-xs cursor-pointer"
+          @tap="showVixGlossary = false"
+        >
+          我知道了
         </view>
       </view>
     </view>

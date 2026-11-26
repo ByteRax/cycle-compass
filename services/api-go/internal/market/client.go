@@ -2,9 +2,11 @@ package market
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,8 +19,10 @@ import (
 )
 
 const (
-	TencentAPI = "https://qt.gtimg.cn/q="
-	CacheTTL   = 3 * time.Second
+	TencentAPI       = "https://qt.gtimg.cn/q="
+	YahooAPI         = "https://query1.finance.yahoo.com/v8/finance/chart/"
+	EastmoneyBondAPI = "https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPTA_WEB_TREASURYYIELD&columns=SOLAR_DATE,EMM00166466&pageSize=2&sortColumns=SOLAR_DATE&sortTypes=-1"
+	CacheTTL         = 3 * time.Second
 )
 
 type cacheEntry struct {
@@ -27,11 +31,13 @@ type cacheEntry struct {
 }
 
 type OnlineProvider struct {
-	client   *http.Client
-	fallback *SeedProvider
-	cache    map[string]cacheEntry
-	cacheMu  sync.RWMutex
-	fetchMu  sync.Mutex
+	client           *http.Client
+	fallback         *SeedProvider
+	yahooBaseURL     string
+	eastmoneyBondURL string
+	cache            map[string]cacheEntry
+	cacheMu          sync.RWMutex
+	fetchMu          sync.Mutex
 }
 
 func NewOnlineProvider(fallback *SeedProvider) *OnlineProvider {
@@ -44,8 +50,10 @@ func NewOnlineProvider(fallback *SeedProvider) *OnlineProvider {
 				IdleConnTimeout:     90 * time.Second,
 			},
 		},
-		fallback: fallback,
-		cache:    make(map[string]cacheEntry),
+		fallback:         fallback,
+		yahooBaseURL:     YahooAPI,
+		eastmoneyBondURL: EastmoneyBondAPI,
+		cache:            make(map[string]cacheEntry),
 	}
 }
 
@@ -228,12 +236,17 @@ func (p *OnlineProvider) GetQuotesBatch(ctx context.Context, symbols []string) [
 	}
 
 	tencentCodesMap := make(map[string]string)
+	yahooCodesMap := make(map[string]string)
+	var needCN10Y bool
 	var fallbackNeeded []string
 
 	for _, sym := range stillMissing {
-		tCode := symbolToTencentCode(sym)
-		if tCode != "" {
+		if tCode := symbolToTencentCode(sym); tCode != "" {
 			tencentCodesMap[tCode] = sym
+		} else if sym == "CN10Y" {
+			needCN10Y = true
+		} else if yCode := symbolToYahooCode(sym); yCode != "" {
+			yahooCodesMap[sym] = yCode
 		} else {
 			fallbackNeeded = append(fallbackNeeded, sym)
 		}
@@ -278,6 +291,52 @@ func (p *OnlineProvider) GetQuotesBatch(ctx context.Context, symbols []string) [
 			if _, ok := results[sym]; !ok {
 				fallbackNeeded = append(fallbackNeeded, sym)
 			}
+		}
+	}
+
+	if len(yahooCodesMap) > 0 {
+		var wg sync.WaitGroup
+		var resMu sync.Mutex
+		sem := make(chan struct{}, 6)
+		for sym, yCode := range yahooCodesMap {
+			wg.Add(1)
+			go func(s, yc string) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				if parsed := p.fetchYahooQuote(ctx, s, yc); parsed != nil {
+					resMu.Lock()
+					p.cacheMu.Lock()
+					p.cache[s] = cacheEntry{
+						quote:     *parsed,
+						timestamp: now,
+					}
+					p.cacheMu.Unlock()
+					results[s] = *parsed
+					resMu.Unlock()
+				}
+			}(sym, yCode)
+		}
+		wg.Wait()
+
+		for sym := range yahooCodesMap {
+			if _, ok := results[sym]; !ok {
+				fallbackNeeded = append(fallbackNeeded, sym)
+			}
+		}
+	}
+
+	if needCN10Y {
+		if parsed := p.fetchEastmoneyCN10Y(ctx); parsed != nil {
+			p.cacheMu.Lock()
+			p.cache["CN10Y"] = cacheEntry{
+				quote:     *parsed,
+				timestamp: now,
+			}
+			p.cacheMu.Unlock()
+			results["CN10Y"] = *parsed
+		} else {
+			fallbackNeeded = append(fallbackNeeded, "CN10Y")
 		}
 	}
 
@@ -354,4 +413,227 @@ func (p *OnlineProvider) StartAutoRefresh(ctx context.Context, symbols []string,
 
 func (p *OnlineProvider) GetFallback() *SeedProvider {
 	return p.fallback
+}
+
+var yahooSymbolMap = map[string]string{
+	"VIX":       "^VIX",
+	"BRENT":     "BZ=F",
+	"DXY":       "DX-Y.NYB",
+	"US20Y":     "TLT",
+	"GOLD_OZ":   "GC=F",
+	"GOLD":      "GC=F",
+	"SILVER_OZ": "SI=F",
+	"COPPER_HG": "HG=F",
+	"COPPER":    "HG=F",
+	"NATGAS":    "NG=F",
+	"SPX":       "^GSPC",
+	"NDX":       "^NDX",
+	"N225":      "^N225",
+	"USDCNH":    "CNH=X",
+	"US10Y":     "^TNX",
+	"KOSPI":     "^KS11",
+	"KOSDAQ":    "^KQ11",
+	"SENSEX":    "^BSESN",
+	"CNYKRW":    "CNYKRW=X",
+	"CNYJPY":    "CNYJPY=X",
+	"USDKRW":    "KRW=X",
+	"USDJPY":    "JPY=X",
+}
+
+func symbolToYahooCode(symbol string) string {
+	return yahooSymbolMap[strings.ToUpper(strings.TrimSpace(symbol))]
+}
+
+type yahooChartResponse struct {
+	Chart struct {
+		Result []struct {
+			Meta struct {
+				Currency                   string   `json:"currency"`
+				RegularMarketPrice         *float64 `json:"regularMarketPrice"`
+				RegularMarketChangePercent *float64 `json:"regularMarketChangePercent"`
+				ChartPreviousClose         *float64 `json:"chartPreviousClose"`
+				PreviousClose              *float64 `json:"previousClose"`
+				RegularMarketTime          int64    `json:"regularMarketTime"`
+				ExchangeTimezoneName       string   `json:"exchangeTimezoneName"`
+			} `json:"meta"`
+		} `json:"result"`
+	} `json:"chart"`
+}
+
+func (p *OnlineProvider) fetchYahooQuote(ctx context.Context, symbol, yahooSym string) *dto.MarketQuote {
+	base := p.yahooBaseURL
+	if base == "" {
+		base = YahooAPI
+	}
+	reqURL := base + url.PathEscape(yahooSym) + "?range=2d&interval=1d"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	startT := time.Now()
+	resp, err := p.client.Do(req)
+	latency := float64(time.Since(startT).Microseconds()) / 1000.0
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var parsed yahooChartResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
+		return nil
+	}
+	if len(parsed.Chart.Result) == 0 {
+		return nil
+	}
+	meta := parsed.Chart.Result[0].Meta
+	if meta.RegularMarketPrice == nil {
+		return nil
+	}
+
+	price := *meta.RegularMarketPrice
+	var changePct float64
+	if meta.RegularMarketChangePercent != nil {
+		changePct = *meta.RegularMarketChangePercent
+	} else if meta.PreviousClose != nil && *meta.PreviousClose > 0 {
+		changePct = ((price - *meta.PreviousClose) / *meta.PreviousClose) * 100.0
+	} else if meta.ChartPreviousClose != nil && *meta.ChartPreviousClose > 0 {
+		changePct = ((price - *meta.ChartPreviousClose) / *meta.ChartPreviousClose) * 100.0
+	}
+
+	var change float64
+	if meta.PreviousClose != nil && *meta.PreviousClose > 0 {
+		change = price - *meta.PreviousClose
+	} else if changePct != 0 {
+		prev := price / (1.0 + changePct/100.0)
+		change = price - prev
+	} else if meta.ChartPreviousClose != nil && *meta.ChartPreviousClose > 0 {
+		change = price - *meta.ChartPreviousClose
+	}
+
+	asOf := time.Now().Format("2006-01-02")
+	if meta.RegularMarketTime > 0 {
+		t := time.Unix(meta.RegularMarketTime, 0).UTC()
+		if meta.ExchangeTimezoneName != "" {
+			if loc, err := time.LoadLocation(meta.ExchangeTimezoneName); err == nil {
+				t = t.In(loc)
+			}
+		}
+		asOf = t.Format("2006-01-02")
+	}
+
+	info, ok := KnownAssets[symbol]
+	name := symbol
+	category := "global"
+	currency := meta.Currency
+	if ok {
+		if info.Name != "" {
+			name = info.Name
+		}
+		if info.Category != "" {
+			category = info.Category
+		}
+		currency = info.Currency
+	}
+
+	roundedLat := math.Round(latency*10) / 10
+	return &dto.MarketQuote{
+		Symbol:    symbol,
+		Name:      name,
+		Category:  category,
+		Price:     math.Round(price*10000) / 10000,
+		Change:    math.Round(change*10000) / 10000,
+		ChangePct: math.Round(changePct*100) / 100,
+		Currency:  currency,
+		AsOf:      asOf,
+		Meta: dto.DataSourceMeta{
+			SourceName: "Yahoo Finance",
+			Symbol:     symbol,
+			AsOf:       asOf,
+			Status:     "ok",
+			LatencyMs:  &roundedLat,
+			UpdatedAt:  time.Now().Format("2006-01-02T15:04:05.000000"),
+		},
+	}
+}
+
+type eastmoneyTreasuryResp struct {
+	Success bool `json:"success"`
+	Result  struct {
+		Data []struct {
+			SolarDate   string   `json:"SOLAR_DATE"`
+			Yield10Y    *float64 `json:"EMM00166466"`
+		} `json:"data"`
+	} `json:"result"`
+}
+
+func (p *OnlineProvider) fetchEastmoneyCN10Y(ctx context.Context) *dto.MarketQuote {
+	reqURL := p.eastmoneyBondURL
+	if reqURL == "" {
+		reqURL = EastmoneyBondAPI
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil
+	}
+
+	startT := time.Now()
+	resp, err := p.client.Do(req)
+	latency := float64(time.Since(startT).Microseconds()) / 1000.0
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var parsed eastmoneyTreasuryResp
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
+		return nil
+	}
+	if !parsed.Success || len(parsed.Result.Data) == 0 || parsed.Result.Data[0].Yield10Y == nil {
+		return nil
+	}
+
+	latest := parsed.Result.Data[0]
+	price := *latest.Yield10Y
+	asOf := strings.TrimSpace(latest.SolarDate)
+	if len(asOf) >= 10 {
+		asOf = asOf[:10]
+	} else {
+		asOf = time.Now().Format("2006-01-02")
+	}
+
+	var change, changePct float64
+	if len(parsed.Result.Data) > 1 && parsed.Result.Data[1].Yield10Y != nil && *parsed.Result.Data[1].Yield10Y > 0 {
+		prev := *parsed.Result.Data[1].Yield10Y
+		change = price - prev
+		changePct = (change / prev) * 100.0
+	}
+
+	info := KnownAssets["CN10Y"]
+	roundedLat := math.Round(latency*10) / 10
+	return &dto.MarketQuote{
+		Symbol:    "CN10Y",
+		Name:      info.Name,
+		Category:  info.Category,
+		Price:     math.Round(price*10000) / 10000,
+		Change:    math.Round(change*10000) / 10000,
+		ChangePct: math.Round(changePct*100) / 100,
+		Currency:  info.Currency,
+		AsOf:      asOf,
+		Meta: dto.DataSourceMeta{
+			SourceName: "Eastmoney Treasury Yield",
+			Symbol:     "CN10Y",
+			AsOf:       asOf,
+			Status:     "ok",
+			LatencyMs:  &roundedLat,
+			UpdatedAt:  time.Now().Format("2006-01-02T15:04:05.000000"),
+		},
+	}
 }

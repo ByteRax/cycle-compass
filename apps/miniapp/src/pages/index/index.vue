@@ -11,6 +11,7 @@ import type { BottomTabKey } from '@/utils/swipe'
 import { onHide, onLoad, onPageScroll, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue'
 import {
+  getAdaptiveRefreshIntervalMs,
   getCombinedStrategySignal,
   getCycleOverview,
   getIndustryMetrics,
@@ -426,24 +427,33 @@ function handleShowSampleBacktest() {
   uni.showToast({ title: '已载入历史样例（2023-08~2026-11）', icon: 'none' })
 }
 
-let autoPollTimer: ReturnType<typeof setInterval> | null = null
+let autoPollTimer: ReturnType<typeof setTimeout> | null = null
 let isPageVisible = true
 
 function stopPolling() {
   if (autoPollTimer) {
-    clearInterval(autoPollTimer)
+    clearTimeout(autoPollTimer)
     autoPollTimer = null
   }
 }
 
-function startPolling() {
+function scheduleNextPoll() {
   stopPolling()
   if (!isPageVisible)
     return
-  autoPollTimer = setInterval(() => {
-    if (isPageVisible)
-      ensureTabData(activeTab.value, true)
-  }, 30_000)
+  const delayMs = getAdaptiveRefreshIntervalMs()
+  autoPollTimer = setTimeout(async () => {
+    if (isPageVisible) {
+      await ensureTabData(activeTab.value, true)
+      if (activeTab.value === 'overview')
+        overviewRef.value?.refreshOverviewSubModules?.()
+    }
+    scheduleNextPoll()
+  }, delayMs)
+}
+
+function startPolling() {
+  scheduleNextPoll()
 }
 
 onLoad((query: any) => {
@@ -467,7 +477,7 @@ onMounted(() => {
 
 onShow(() => {
   isPageVisible = true
-  const stale = Date.now() - lastActiveFetchMs > 30_000
+  const stale = Date.now() - lastActiveFetchMs > getAdaptiveRefreshIntervalMs()
   if (stale) {
     ensureTabData(activeTab.value, true)
     if (activeTab.value === 'overview')

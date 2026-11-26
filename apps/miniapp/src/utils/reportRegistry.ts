@@ -410,6 +410,73 @@ export function drawReportPageToCanvas(
       brand
     })
   }
+  else if (bundle.chart === 'components' && bundle.components) {
+    drawListSummaryPage(
+      ctx,
+      width,
+      bundle.components.series.slice(0, 10).map((s, idx) => {
+        const tm = getTrendTempMeta(s.temperature)
+        return {
+          title: `${idx + 1}. ${s.name}`,
+          tag: tm.label,
+          tagColor: isLight ? tm.lightColor : tm.color,
+          tagBg: tm.bg,
+          value: fmtSignedPct(s.total_return_pct, 1),
+          color: getDirColor(s.total_return_pct)
+        }
+      }),
+      { cardBg, border, textPrimary, textMuted, brand }
+    )
+  }
+  else if (bundle.chart === 'dashboard' && bundle.dashboard) {
+    const rows = bundle.dashboard.groups.flatMap(g => g.rows.map((r) => {
+      const tm = getTrendTempMeta(r.asset.metrics?.temperature)
+      return {
+        title: `${g.group_name} · ${r.asset.short_name || r.asset.name}`,
+        tag: tm.label,
+        tagColor: isLight ? tm.lightColor : tm.color,
+        tagBg: tm.bg,
+        value: fmtSignedPct(r.change_pct, 1),
+        color: getDirColor(r.change_pct)
+      }
+    })).slice(0, 10)
+    drawListSummaryPage(ctx, width, rows, { cardBg, border, textPrimary, textMuted, brand })
+  }
+  else if (bundle.chart === 'distribution' && bundle.distribution) {
+    const d = bundle.distribution
+    const rows = [
+      { title: '右侧确认资产数', tag: '全池统计', value: `${d.right_count} / ${d.valid_count}`, color: brand },
+      { title: '右侧确认占比', tag: '市场宽度', value: fmtSignedPct(d.right_ratio_pct, 1), color: getDirColor(d.right_ratio_pct) },
+      { title: '样本节点总数', tag: '有效覆盖', value: `${d.nodes.length} 项`, color: textPrimary },
+      ...d.nodes.slice(0, 7).map((n) => {
+        const tm = getTrendTempMeta(n.temperature)
+        return {
+          title: n.name,
+          tag: tm.label,
+          tagColor: isLight ? tm.lightColor : tm.color,
+          tagBg: tm.bg,
+          value: fmtSignedPct(n.day_change_pct, 1),
+          color: getDirColor(n.day_change_pct)
+        }
+      })
+    ]
+    drawListSummaryPage(ctx, width, rows, { cardBg, border, textPrimary, textMuted, brand })
+  }
+  else if (bundle.chart === 'annual' && bundle.annual) {
+    const a = bundle.annual
+    const rows = [
+      { title: '今年以来收益', tag: a.asset_name, value: fmtSignedPct(a.stats.current_year_return_pct, 1), color: getDirColor(a.stats.current_year_return_pct) },
+      { title: '历史同期中位数', tag: `样本 ${a.stats.sample_count} 年`, value: fmtSignedPct(a.stats.same_week_median_pct, 1), color: getDirColor(a.stats.same_week_median_pct) },
+      { title: '历史上涨年份比', tag: '胜率统计', value: fmtSignedPct(a.stats.up_ratio_pct, 1), color: brand },
+      ...a.years.slice(-7).reverse().map(yr => ({
+        title: `${yr.year} 年度走势`,
+        tag: yr.is_current ? '当年' : '历史',
+        value: fmtSignedPct(yr.latest_return_pct, 1),
+        color: getDirColor(yr.latest_return_pct)
+      }))
+    ]
+    drawListSummaryPage(ctx, width, rows, { cardBg, border, textPrimary, textMuted, brand })
+  }
   else {
     drawCurveOrSummaryPage(ctx, width, height, bundle, {
       isLight,
@@ -788,4 +855,47 @@ color: palette.riseColor
     ctx.font = 'bold 36px sans-serif'
     ctx.fillText(s.value, x, statsY + 52)
   })
+}
+
+function drawListSummaryPage(
+  ctx: any,
+  width: number,
+  rows: Array<{ title: string, tag: string, tagColor?: string, tagBg?: string, value: string, color: string }>,
+  palette: {
+    cardBg: string
+    border: string
+    textPrimary: string
+    textMuted: string
+    brand: string
+  }
+) {
+  let y = 276
+  const rowH = 86
+  const x = 64
+  const w = width - 128
+  for (const row of rows.slice(0, 10)) {
+    ctx.fillStyle = palette.cardBg
+    ctx.fillRect(x, y, w, rowH - 12)
+    ctx.strokeStyle = palette.border
+    ctx.lineWidth = 2
+    ctx.strokeRect(x, y, w, rowH - 12)
+
+    ctx.fillStyle = palette.textPrimary
+    ctx.font = 'bold 28px sans-serif'
+    ctx.fillText(row.title.slice(0, 20), x + 28, y + 46)
+
+    if (row.tagBg) {
+      ctx.fillStyle = row.tagBg
+      ctx.fillRect(x + w - 352, y + 18, 64, 40)
+    }
+    ctx.fillStyle = row.tagColor || palette.textMuted
+    ctx.font = row.tagColor ? 'bold 24px sans-serif' : '24px sans-serif'
+    ctx.fillText(row.tag, x + w - 336, y + 46)
+
+    ctx.fillStyle = row.color
+    ctx.font = 'bold 28px sans-serif'
+    ctx.fillText(row.value, x + w - 160, y + 46)
+
+    y += rowH
+  }
 }

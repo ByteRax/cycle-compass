@@ -131,6 +131,7 @@ function onTabClick(key: string | number) {
 <template>
   <scroll-view
     scroll-x
+    enhanced
     class="tabs-scroll-view whitespace-nowrap w-full"
     :show-scrollbar="false"
     :scroll-left="scrollLeft"

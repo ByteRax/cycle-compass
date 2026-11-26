@@ -373,6 +373,13 @@ async function fetchAll (forceLatest = false) {
   catch (err: any) {
     if (!detailRace.isLatest(token))
       return
+    if (isExpiredSnapshotError(err) && snapshotMode.value === 'fixed' && requestedSnapshotId.value) {
+      snapshotMode.value = 'latest'
+      requestedSnapshotId.value = ''
+      resolvedSnapshotId.value = ''
+      uni.showToast({ title: '原锁定快照已过期，已自动切换为最新快照', icon: 'none' })
+      return fetchAll(true)
+    }
     isExpiredSnapshot.value = isExpiredSnapshotError(err)
     isUnknownAsset.value = isNotFoundError(err)
     errorMsg.value = isUnknownAsset.value

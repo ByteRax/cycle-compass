@@ -360,7 +360,7 @@ function setReportTheme(theme: 'light' | 'dark') {
 }
 
 function formatPct(val: number | null | undefined): string {
-  if (val === null || val === undefined)
+  if (val === null || val === undefined || !Number.isFinite(val))
     return '—'
   const sign = val > 0
     ? '+'
@@ -368,8 +368,55 @@ function formatPct(val: number | null | undefined): string {
   return `${sign}${val.toFixed(1)}%`
 }
 
+function getPctColor(val: number | null | undefined): string {
+  const isLight = reportTheme.value === 'light'
+  if (val === null || val === undefined || !Number.isFinite(val) || val === 0)
+    return isLight ? '#626F77' : '#8D99A4'
+  const isUp = val > 0
+  const cnRedUp = financeStore.colorScheme === 'cn_red_up'
+  const useRise = cnRedUp ? isUp : !isUp
+  if (useRise)
+    return isLight ? '#B93842' : '#F05A50'
+  return isLight ? '#14745E' : '#2AD1A3'
+}
+
+function getTempBadgeStyle(temp?: string | null) {
+  const meta = getTrendTempMeta(temp)
+  const isLight = reportTheme.value === 'light'
+  return {
+    color: isLight ? meta.lightColor : meta.color,
+    backgroundColor: meta.bg,
+    borderColor: meta.border
+  }
+}
+
 function renderSinglePage(pageSpec: ReturnType<typeof buildReportPages>[number]): Promise<string> {
   return new Promise((resolve, reject) => {
+    const width = 1080
+    const height = 1440
+    // #ifdef H5
+    if (typeof document !== 'undefined') {
+      const h5Canvas = document.createElement('canvas')
+      h5Canvas.width = width
+      h5Canvas.height = height
+      const ctx = h5Canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('当前环境不支持 Canvas 2D 高清导出'))
+        return
+      }
+      drawReportPageToCanvas(
+        ctx,
+        width,
+        height,
+        reportBundle.value,
+        pageSpec,
+        reportTheme.value,
+        financeStore.colorScheme === 'cn_red_up'
+      )
+      resolve(h5Canvas.toDataURL('image/png'))
+      return
+    }
+    // #endif
     const query = uni.createSelectorQuery().in(instance?.proxy)
     query.select('#reportCanvas').fields({ node: true, size: true }, () => {}).exec((res) => {
       const node = res?.[0]?.node
@@ -377,8 +424,6 @@ function renderSinglePage(pageSpec: ReturnType<typeof buildReportPages>[number])
         reject(new Error('当前环境不支持 Canvas 2D 高清导出'))
         return
       }
-      const width = 1080
-      const height = 1440
       node.width = width
       node.height = height
       const ctx = node.getContext('2d')
@@ -446,7 +491,24 @@ async function handlePreviewImage() {
   }
 }
 
-function saveSingleImageToAlbum(filePath: string): Promise<void> {
+function saveSingleImageToAlbum(filePath: string, index = 0): Promise<void> {
+  // #ifdef H5
+  return new Promise((resolve, reject) => {
+    try {
+      const link = document.createElement('a')
+      link.href = filePath
+      link.download = `cyclecompass-report-${index + 1}.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      resolve()
+    }
+    catch (err) {
+      reject(err)
+    }
+  })
+  // #endif
+  // #ifndef H5
   return new Promise((resolve, reject) => {
     uni.saveImageToPhotosAlbum({
       filePath,
@@ -454,6 +516,7 @@ function saveSingleImageToAlbum(filePath: string): Promise<void> {
       fail: err => reject(err)
     })
   })
+  // #endif
 }
 
 async function handleSaveToAlbum() {
@@ -467,13 +530,15 @@ async function handleSaveToAlbum() {
   uni.showLoading({ title: '正在导出 1080px 高清图...' })
   try {
     const paths = await ensureRenderedPages()
-    for (const p of paths)
-      await saveSingleImageToAlbum(p)
+    for (let i = 0; i < paths.length; i++)
+      await saveSingleImageToAlbum(paths[i]!, i)
     uni.hideLoading()
+    let successTitle = paths.length > 1 ? `已保存全部 ${paths.length} 页到相册` : '已保存到相册'
+    // #ifdef H5
+    successTitle = paths.length > 1 ? `已导出全部 ${paths.length} 页高清报告` : '已导出高清报告图'
+    // #endif
     uni.showToast({
-      title: paths.length > 1
-? `已保存全部 ${paths.length} 页到相册`
-: '已保存到相册',
+      title: successTitle,
       icon: 'success'
     })
   }
@@ -501,6 +566,19 @@ async function handleSaveToAlbum() {
   finally {
     exporting.value = false
   }
+}
+function handleShareTap() {
+  // #ifdef H5
+  const shareUrl = typeof window !== 'undefined' ? window.location.href : ''
+  if (shareUrl) {
+    uni.setClipboardData({
+      data: shareUrl,
+      success: () => {
+        uni.showToast({ title: '已复制报告链接，可直接粘贴分享', icon: 'none' })
+      }
+    })
+  }
+  // #endif
 }
 </script>
 
@@ -625,13 +703,19 @@ async function handleSaveToAlbum() {
               >
                 <text class="font-medium truncate max-w-[110px]">{{ row.asset.short_name || row.asset.name }}</text>
                 <view class="flex items-center gap-2 font-mono cc-tabular">
-                  <text v-for="col in (matrixData.columns || []).slice(0, 3)" :key="col.key">
-                    {{ col.label }}:{{ row.cells[col.key]?.return_pct !== null && row.cells[col.key]?.return_pct !== undefined
-                      ? `${row.cells[col.key]!.return_pct! > 0 ? '+' : ''}${row.cells[col.key]!.return_pct!.toFixed(1)}%`
-                      : (row.cells[col.key]?.bp_change !== null && row.cells[col.key]?.bp_change !== undefined
-                        ? `${row.cells[col.key]!.bp_change! > 0 ? '+' : ''}${row.cells[col.key]!.bp_change!.toFixed(1)}bp`
-                        : '—') }}
-                  </text>
+                  <view v-for="col in (matrixData.columns || []).slice(0, 3)" :key="col.key" class="flex items-center gap-0.5">
+                    <text class="opacity-65">{{ col.label }}:</text>
+                    <text
+                      class="font-bold"
+                      :style="{ color: getPctColor(row.cells[col.key]?.return_pct ?? row.cells[col.key]?.bp_change) }"
+                    >
+                      {{ row.cells[col.key]?.return_pct !== null && row.cells[col.key]?.return_pct !== undefined
+                        ? `${row.cells[col.key]!.return_pct! > 0 ? '+' : ''}${row.cells[col.key]!.return_pct!.toFixed(1)}%`
+                        : (row.cells[col.key]?.bp_change !== null && row.cells[col.key]?.bp_change !== undefined
+                          ? `${row.cells[col.key]!.bp_change! > 0 ? '+' : ''}${row.cells[col.key]!.bp_change!.toFixed(1)}bp`
+                          : '—') }}
+                    </text>
+                  </view>
                 </view>
               </view>
             </view>
@@ -693,6 +777,124 @@ async function handleSaveToAlbum() {
           </view>
         </template>
 
+        <!-- 品种成分趋势预览 -->
+        <template v-else-if="chartType === 'components' && componentsData">
+          <view class="space-y-1.5 mb-3">
+            <view
+              v-for="(s, idx) in componentsData.series.slice(0, 8)"
+              :key="s.asset_id"
+              class="px-2.5 py-1.5 rounded-lg border flex items-center justify-between text-[11px]"
+              :style="reportTheme === 'light'
+                ? 'background-color: #FFFFFF; border-color: #DCDDD8;'
+                : 'background-color: #181E25; border-color: #29313A;'"
+            >
+              <text class="font-medium truncate max-w-[140px]">{{ idx + 1 }}. {{ s.name }}</text>
+              <view class="flex items-center gap-2 font-mono cc-tabular">
+                <text
+                  class="px-1.5 py-0.5 rounded border text-[10px] font-bold leading-none"
+                  :style="getTempBadgeStyle(s.temperature)"
+                >
+                  {{ getTrendTempMeta(s.temperature).label }}
+                </text>
+                <text class="font-bold min-w-[48px] text-right" :style="{ color: getPctColor(s.total_return_pct) }">
+                  {{ formatPct(s.total_return_pct) }}
+                </text>
+              </view>
+            </view>
+          </view>
+        </template>
+
+        <!-- 趋势仪表盘预览 -->
+        <template v-else-if="chartType === 'dashboard' && dashboardData">
+          <view class="space-y-2 mb-3">
+            <view
+              v-for="g in dashboardData.groups.slice(0, 3)"
+              :key="g.group_name"
+              class="rounded-xl border overflow-hidden"
+              :style="reportTheme === 'light'
+                ? 'background-color: #FFFFFF; border-color: #DCDDD8;'
+                : 'background-color: #181E25; border-color: #29313A;'"
+            >
+              <view class="px-2.5 py-1 text-[11px] font-bold" :style="{ color: reportTheme === 'light' ? '#8A641F' : '#E5B352' }">
+                {{ g.group_name }}
+              </view>
+              <view
+                v-for="r in g.rows.slice(0, 4)"
+                :key="r.asset.asset_id"
+                class="px-2.5 py-1.5 flex items-center justify-between text-[11px] border-t"
+                :style="{ borderColor: reportTheme === 'light' ? '#DCDDD8' : '#29313A' }"
+              >
+                <text class="font-medium truncate max-w-[140px]">{{ r.asset.short_name || r.asset.name }}</text>
+                <view class="flex items-center gap-2 font-mono cc-tabular">
+                  <text
+                    class="px-1.5 py-0.5 rounded border text-[10px] font-bold leading-none"
+                    :style="getTempBadgeStyle(r.asset.metrics?.temperature)"
+                  >
+                    {{ getTrendTempMeta(r.asset.metrics?.temperature).label }}
+                  </text>
+                  <text class="font-bold min-w-[48px] text-right" :style="{ color: getPctColor(r.change_pct) }">
+                    {{ formatPct(r.change_pct) }}
+                  </text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </template>
+
+        <!-- 右侧分布预览 -->
+        <template v-else-if="chartType === 'distribution' && distributionData">
+          <view
+            class="grid grid-cols-3 gap-2 p-3 rounded-xl border mb-3"
+            :style="reportTheme === 'light'
+              ? 'background-color: #FFFFFF; border-color: #DCDDD8;'
+              : 'background-color: #181E25; border-color: #29313A;'"
+          >
+            <view>
+              <text class="text-[10px] opacity-70 block">右侧确认</text>
+              <text class="text-base font-bold cc-tabular block">{{ distributionData.right_count }} / {{ distributionData.valid_count }}</text>
+            </view>
+            <view>
+              <text class="text-[10px] opacity-70 block">右侧占比</text>
+              <text class="text-base font-bold cc-tabular block" :style="{ color: reportTheme === 'light' ? '#8A641F' : '#E5B352' }">
+                {{ formatPct(distributionData.right_ratio_pct) }}
+              </text>
+            </view>
+            <view>
+              <text class="text-[10px] opacity-70 block">样本数</text>
+              <text class="text-base font-bold cc-tabular block">{{ distributionData.nodes.length }}</text>
+            </view>
+          </view>
+        </template>
+
+        <!-- 年度走势预览 -->
+        <template v-else-if="chartType === 'annual' && annualData">
+          <view
+            class="grid grid-cols-3 gap-2 p-3 rounded-xl border mb-3"
+            :style="reportTheme === 'light'
+              ? 'background-color: #FFFFFF; border-color: #DCDDD8;'
+              : 'background-color: #181E25; border-color: #29313A;'"
+          >
+            <view>
+              <text class="text-[10px] opacity-70 block">今年以来</text>
+              <text class="text-base font-bold cc-tabular block" :style="{ color: getPctColor(annualData.stats.current_year_return_pct) }">
+                {{ formatPct(annualData.stats.current_year_return_pct) }}
+              </text>
+            </view>
+            <view>
+              <text class="text-[10px] opacity-70 block">同期中位数</text>
+              <text class="text-base font-bold cc-tabular block" :style="{ color: getPctColor(annualData.stats.same_week_median_pct) }">
+                {{ formatPct(annualData.stats.same_week_median_pct) }}
+              </text>
+            </view>
+            <view>
+              <text class="text-[10px] opacity-70 block">上涨年份比</text>
+              <text class="text-base font-bold cc-tabular block" :style="{ color: reportTheme === 'light' ? '#8A641F' : '#E5B352' }">
+                {{ formatPct(annualData.stats.up_ratio_pct) }}
+              </text>
+            </view>
+          </view>
+        </template>
+
         <template v-else>
           <!-- 3栏 KPI -->
           <view
@@ -737,19 +939,19 @@ async function handleSaveToAlbum() {
           <view class="grid grid-cols-4 gap-2 mb-3 pt-2 border-t" :style="{ borderColor: reportTheme === 'light' ? '#DCDDD8' : '#29313A' }">
             <view>
               <text class="text-[10px] opacity-70 block">累计收益</text>
-              <text class="text-xs font-bold cc-tabular">{{ formatPct(displayReturnPct) }}</text>
+              <text class="text-xs font-bold cc-tabular" :style="{ color: getPctColor(displayReturnPct) }">{{ formatPct(displayReturnPct) }}</text>
             </view>
             <view>
               <text class="text-[10px] opacity-70 block">比较基准</text>
-              <text class="text-xs font-bold cc-tabular">{{ formatPct(displayBenchmarkReturnPct) }}</text>
+              <text class="text-xs font-bold cc-tabular" :style="{ color: getPctColor(displayBenchmarkReturnPct) }">{{ formatPct(displayBenchmarkReturnPct) }}</text>
             </view>
             <view>
               <text class="text-[10px] opacity-70 block">最大回撤</text>
-              <text class="text-xs font-bold cc-tabular">{{ formatPct(curveData?.extremum?.max_drawdown_pct) }}</text>
+              <text class="text-xs font-bold cc-tabular" :style="{ color: getPctColor(curveData?.extremum?.max_drawdown_pct) }">{{ formatPct(curveData?.extremum?.max_drawdown_pct) }}</text>
             </view>
             <view>
               <text class="text-[10px] opacity-70 block">最大上涨</text>
-              <text class="text-xs font-bold cc-tabular">{{ formatPct(curveData?.extremum?.max_gain_pct) }}</text>
+              <text class="text-xs font-bold cc-tabular" :style="{ color: getPctColor(curveData?.extremum?.max_gain_pct) }">{{ formatPct(curveData?.extremum?.max_gain_pct) }}</text>
             </view>
           </view>
         </template>
@@ -816,6 +1018,7 @@ async function handleSaveToAlbum() {
         open-type="share"
         class="w-full py-2.5 rounded-xl cc-elevated cc-text-primary text-xs font-medium border"
         style="border-color: var(--cc-border);"
+        @tap="handleShareTap"
       >
         转发给微信好友（还原当前报告参数）
       </button>
@@ -824,6 +1027,7 @@ async function handleSaveToAlbum() {
     <!-- 离屏 1080px Canvas 2D 节点 -->
     <canvas
       id="reportCanvas"
+      canvas-id="reportCanvas"
       type="2d"
       style="width: 1080px; height: 1440px; position: fixed; left: -9999px; top: -9999px;"
     />
